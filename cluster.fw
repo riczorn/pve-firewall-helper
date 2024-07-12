@@ -1,0 +1,103 @@
+# Generic Cluster Firewall Rules
+# By Riccardo Zorn
+# Package: PVE Firewall Helper
+# License: GPL 2.0
+# fasterweb.net
+
+# Please be careful. When you enable the firewall, you may block yourself out.
+# Go through the included README before launching anything (it may be in /opt/abuseipdb)
+# This file defines three sets/aliases for use by the VMs & CTs:
+# dc/admins, dc/ovh, blacklist
+
+# The script that generated cluster.fw logs in /var/log/pve-firewall-helper_log
+
+# DO NOT change this file now. First see if the rules are loaded in the
+# Proxmox interface, it will be much easier working from there.
+# Changes made in the interface are not overridden
+# when the IPSET blacklist4 is updated.
+
+[OPTIONS]
+
+policy_in: ACCEPT
+enable: 1
+
+[ALIASES]
+
+OVH1 92.222.184.0/24
+OVH2 92.222.185.0/24
+OVH3 92.222.186.0/24
+OVH4 167.114.37.0/24
+OVH5 139.99.1.144/28
+OVH6 213.186.33.13
+OVH7 54.36.122.250
+OVH8 54.36.122.251
+
+[IPSET admins]
+
+93.184.215.14    # Ric
+93.184.215.15    # Dave
+
+[IPSET ovh] # Servizi di monitoraggio OVH
+
+dc/ovh1
+dc/ovh2
+dc/ovh3
+dc/ovh4
+dc/ovh5
+dc/ovh6
+dc/ovh7
+dc/ovh8
+
+[IPSET blacklist6]
+
+
+[IPSET blacklist4]
+# this will be filled with the updated blacklist all the way down to the [ RULES ] below.
+
+1.10.146.175
+# another 90k IPv4 addresses will be added here by `update-ip-blacklist.sh`
+
+[RULES]
+
+IN REJECT -source +blacklist4 -log warning
+IN REJECT -source +blacklist6 -log warning
+
+|IN ACCEPT -source +dc/ovh -p icmp -log nolog    # only allow ping from OVH monitoring servers
+|IN ACCEPT -source +dc/admins -p icmp -log nolog # only allow ping from admins -
+IN ACCEPT -p icmp -log nolog # if you wish to allow pings from all enable this
+
+# Control - admin panels (only leave yours enabled)
+
+|IN ACCEPT -p tcp -dport 2082 -log nolog # Cpanel
+|IN ACCEPT -p tcp -dport 2083 -log nolog # Cpanel there are several more ports for Cpanel!
+|IN ACCEPT -p tcp -dport 2222 -log nolog # DirectAdmin
+IN ACCEPT -p tcp -dport 8006 -log nolog # Proxmox
+|IN ACCEPT -p tcp -dport 8443 -log nolog # Plesk
+|IN ACCEPT -p tcp -dport 9000 -log nolog # Portainer
+|IN ACCEPT -p tcp -dport 10000 -log nolog # Virtualmin
+|IN ACCEPT -p udp -dport 10000 -log nolog # Virtualmin
+|IN ACCEPT -p tcp -dport 20000 -log nolog # Virtualmin Usermin
+|IN ACCEPT -p udp -dport 20000 -log nolog # Virtualmin Usermin
+
+|IN ACCEPT -p tcp -dport 10050 -log nolog # Zabbix (monitoring)
+
+# Generic services
+
+|IN ACCEPT -p tcp -dport 20 -log nolog      # ftp, please don't use ftp
+|IN ACCEPT -p tcp -dport 21 -log nolog      # ftp, see above
+IN ACCEPT -p tcp -dport 22 -log nolog       # ssh, you need this
+|IN ACCEPT -p tcp -dport 25 -log nolog       # smtp, you need this
+|IN ACCEPT -p tcp -dport 53 -log nolog       # dns / bind
+|IN ACCEPT -p tcp -dport 80 -log nolog       # http
+|IN ACCEPT -p tcp -dport 110 -log nolog      # pop3
+|IN ACCEPT -p tcp -dport 143 -log nolog      # imap
+|IN ACCEPT -p tcp -dport 443 -log nolog      # https
+|IN ACCEPT -p tcp -dport 465 -log nolog      # smtp over tls
+|IN ACCEPT -p tcp -dport 587 -log nolog      # smtp (exim/starttls)
+|IN ACCEPT -p tcp -dport 993 -log nolog      # imap ssl
+|IN ACCEPT -p tcp -dport 995 -log nolog      # pop3 ssl
+
+|IN ACCEPT -p tcp -dport 2077 -log nolog    # WebDAV
+|IN ACCEPT -p tcp -dport 2078 -log nolog    # WebDAV ssl
+|IN ACCEPT -p tcp -dport 2079 -log nolog    # CalDAV and CardDAV
+|IN ACCEPT -p tcp -dport 2080 -log nolog    # CalDAV and CardDAV ssl
