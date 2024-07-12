@@ -1,12 +1,14 @@
-# Proxmox firewall configuration helper
+# PVE Firewall helper
+## Proxmox firewall configuration helper
 
 Generic Cluster and CT/VM Firewall Rules for Proxmox PVE Firewall
 Includes update and insert of abuseipdb 60 days rules.
 By Riccardo Zorn
 License: GPL 2.0
 fasterweb.net
-PVE Firewall Helper: https://github.com/riczorn/pve-firewall-helper
-IP worst IPv4 & IPv6 offenders https://github.com/borestad/blocklist-abuseipdb/
+
+- PVE Firewall Helper: https://github.com/riczorn/pve-firewall-helper
+- IP worst IPv4 & IPv6 offenders https://github.com/borestad/blocklist-abuseipdb/
 
 ## Please be careful. When you enable the firewall, you may block yourself out.
 
@@ -20,7 +22,23 @@ Proxmox, including a script to update a massive blacklist of abuseipdb into the 
 The install.sh makes a copy of your current configuration in /tmp/firewall-backup-date.tar.gz
 then proceeds to create a firewall configuration for the Datacenter, and a firewall configuration for each of the containers and virtual machines installed, based on the files cluster.fw and generic.fw included.
 
-## /etc/pve/firewall/cluster.fw
+It also invokes `apt install zip iprange` replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
+
+## Syntax
+
+```
+./install.sh install
+```
+
+or
+
+```
+./install.sh install slow
+```
+
+to make pve-firewall only update every 1200 seconds instead of 10.
+
+## `/etc/pve/firewall/cluster.fw`
 
 ### Description
 
@@ -53,7 +71,7 @@ Keep the console open as you may need it again.
 
 If everything is fine at the datacenter level, you might want to make a backup of your initial configuration files in /etc/pve/firewall.
 
-## /etc/pve/firewall/101.fw
+## `/etc/pve/firewall/101.fw`
 
 This is the default file that is created for each of the CTs and VMs, using the `generic.fw` included. Each VM's firewall is enabled by default, but it is set to ALLOW all traffic, except for the blacklist. Some typical LAMP + mail services are enabled, other less common services are created for your convenience but they are not enabled.
 This is meant to assist you in quickly creating a set of firewall rules that is meaningful for your machine from the Proxmox interface.
