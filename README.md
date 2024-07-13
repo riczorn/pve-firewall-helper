@@ -32,6 +32,13 @@ Clone the repo with your favourite method i.e.
 ```
 [/opt]# git clone https://github.com/riczorn/pve-firewall-helper.git
 ```
+or just this once:
+
+```bash
+wget https://github.com/riczorn/pve-firewall-helper/archive/refs/heads/main.zip
+unzip main.zip
+mv pve-firewall-helper-main pve-firewall-helper
+```
 
 ## Syntax
 
@@ -89,6 +96,34 @@ If everything is fine at the datacenter level, you might want to make a backup o
 This is the default file that is created for each of the CTs and VMs, using the `generic.fw` included. Each VM's firewall is enabled by default, but it is set to ALLOW all traffic, except for the blacklist. Some typical LAMP + mail services are enabled, other less common services are created for your convenience but they are not enabled.
 
 This is meant to assist you in quickly creating a set of firewall rules that is meaningful for your machine from the Proxmox interface.
+
+## If you use NAT - Network Address Translation
+
+In case you make use of NAT in your virtual servers configuration, you will need to allow the NAT traffic.
+
+This example is based on OVH standard Proxmox configuration, where vmbr0 is the public bridge and vmbr1 is the private bridge, and assumes 192.168.63.0/24 is your IPv4 network.
+
+You may insert the rules directly in `/etc/network/interfaces` in the vmbr1 section:
+
+```bash
+auto vmbr1
+iface vmbr1 inet static
+  address 192.168.63.1/24
+  bridge_ports none
+  bridge_stp off
+  bridge_fd 0
+  post-up echo 1 > /proc/sys/net/ipv4/ip_forward
+  post-up   iptables -t nat -A POSTROUTING -s '192.168.63.0/24' -o vmbr0 -j MASQUERADE
+  post-down iptables -t nat -D POSTROUTING -s '192.168.63.0/24' -o vmbr0 -j MASQUERADE
+post-up   iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
+post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
+```
+
+- [Learn more about running with NAT on OVH][nat-ovh]
+- [Learn more about NAT and FW][nat-fw]
+
+[nat-ovh]: https://bobcares.com/blog/setup-nat-on-proxmox/
+[nat-fw]: https://forum.proxmox.com/threads/no-more-nat-masquerading-after-firewall-usage.63459/
 
 ## Updating the abuseipdb list
 
