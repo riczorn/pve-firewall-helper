@@ -172,7 +172,7 @@ if [[ -e "iprange6.txt" ]]; then
 	cat iprange6.txt >> $CLUSTERFILE
 	LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
 	MSGv6="plus $LINESip6 IPv6 addresses"
-else
+# else
 	# a sample IPv6 host
 	# echo "2001:470:1:332:B0:00:B1:35" >> $CLUSTERFILE
 fi
