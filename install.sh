@@ -40,6 +40,7 @@ for i in "$@"; do
       ;;
     -*|--*)
       echo "Unknown option $i"
+      showHelp
       exit 1
       ;;
     *)
