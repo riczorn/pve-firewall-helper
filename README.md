@@ -63,8 +63,13 @@ The default cluster-level firewall, which also defines the three sets used in th
 
 - dc/admins, (this should be your ips)
 - dc/ovh,    (in case you use OVH's server monitoring)
-- blacklist4  (a placeholder for the set of IPv4 addresses from abuseipdb)
-- blacklist6  (a placeholder for the set of IPv6 addresses from abuseipdb)
+- zzzblacklist4  (a placeholder for the set of IPv4 addresses from abuseipdb)
+- zzzblacklist6  (a placeholder for the set of IPv6 addresses from abuseipdb)
+
+
+    The names start with zzz as Proxmox interface
+    is keen on sorting the IPSets, this way they
+    stay last before the [RULES].
 
 The sets are mostly empty, and the initial configuration is to allow all traffic.
 

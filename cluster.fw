@@ -48,19 +48,19 @@ dc/ovh6
 dc/ovh7
 dc/ovh8
 
-[IPSET blacklist6]
-
-
-[IPSET blacklist4]
+[IPSET zzzblacklist4]
 # this will be filled with the updated blacklist all the way down to the [ RULES ] below.
-
 1.10.146.175
-# another 90k IPv4 addresses will be added here by `update-ip-blacklist.sh`
+# another 75k IPv4 addresses will be added here by `update-ip-blacklist.sh`
+
+[IPSET zzzblacklist6]
+# 170 addresses as of July 2024
+2001:470:1:332:B0:00:B1:35
 
 [RULES]
 
-IN REJECT -source +blacklist4 -log warning
-IN REJECT -source +blacklist6 -log warning
+IN REJECT -source +zzzblacklist4 -log warning
+IN REJECT -source +zzzblacklist6 -log warning
 
 IN ACCEPT -source +dc/ovh -p icmp -log nolog    # only allow ping from OVH monitoring servers
 IN ACCEPT -source +dc/admins -p icmp -log nolog # only allow ping from admins -

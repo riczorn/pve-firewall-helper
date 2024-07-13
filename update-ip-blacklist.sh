@@ -125,7 +125,7 @@ cp $CLUSTERFILE $CLUSTERFILE.bak
 # Extract the top and bottom portions of $CLUSTERFILE
 # pre.txt will contain the initial part up to the [IPSET blacklist6]
 # post.txt will contain the RULES. The [IPSET blacklist4] will be added below
-cat $CLUSTERFILE | grep -B 1000000 '\[IPSET blacklist6\]' > pre.txt
+cat $CLUSTERFILE | grep -B 1000000 '\[IPSET zzzblacklist4\]' > pre.txt
 cat $CLUSTERFILE | grep -A 1000000 '\[RULES\]' > post.txt
 
 # Ensure the structure of the .fw file is correct
@@ -154,7 +154,6 @@ LINES=`wc -l $FILEv4 | tr -s ' ' | cut -f 1 -d ' '`
 
 
 if [[ -f "$FILEv6" ]]; then
-
 	LINESv6=`wc -l $FILEv6 | tr -s ' ' | cut -f 1 -d ' '`
 	if [[ "$LINESv6" -gt 5 ]]; then
 		cat $FILEv6 > iprange6.txt
@@ -169,7 +168,6 @@ cat pre.txt > $CLUSTERFILE
 
 MSGv6=""
 if [[ -e "iprange6.txt" ]]; then
-	cat iprange6.txt >> $CLUSTERFILE
 	LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
 	MSGv6="plus $LINESip6 IPv6 addresses"
 # else
@@ -178,12 +176,16 @@ if [[ -e "iprange6.txt" ]]; then
 fi
 
 # The IPv4 header; the list cannot be empty, it's tested above.
-echo -e "\n[IPSET blacklist4]\n" >> $CLUSTERFILE
 cat iprange.txt >> $CLUSTERFILE
+echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\n" >> $CLUSTERFILE
+
+echo -e "\n[IPSET zzzblacklist6]\n" >> $CLUSTERFILE
+cat iprange6.txt >> $CLUSTERFILE
 echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\n# Script: $0\n" >> $CLUSTERFILE
 cat post.txt >> $CLUSTERFILE
 
 showInfo "File created: `ls -lah $CLUSTERFILE`"
+
 GREEN="\033[38;5;226m"
 showInfo "Compile the PVE Firewall Rules: pve-firewall compile"
 pve-firewall compile > /dev/null

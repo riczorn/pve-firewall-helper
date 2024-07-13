@@ -16,8 +16,8 @@ enable: 1
 
 [RULES]
 
-IN REJECT -source +blacklist4 -log warning
-IN REJECT -source +blacklist6 -log warning
+IN REJECT -source +zzzblacklist4 -log warning
+IN REJECT -source +zzzblacklist6 -log warning
 IN ACCEPT -source +dc/ovh -p icmp -log nolog    # Allow ping from ovh monitoring
 IN ACCEPT -source +dc/admins -p icmp -log nolog # Allow ping from admins
 |IN ACCEPT -p icmp -log nolog # if you wish to allow pings from all
