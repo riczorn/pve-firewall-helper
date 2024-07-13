@@ -37,6 +37,7 @@ or just this once:
 ```bash
 wget https://github.com/riczorn/pve-firewall-helper/archive/refs/heads/main.zip
 unzip main.zip
+rm main.zip
 mv pve-firewall-helper-main pve-firewall-helper
 ```
 
@@ -119,8 +120,9 @@ post-up   iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
 post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
 ```
 
-- [Learn more about running with NAT on OVH][nat-ovh]
-- [Learn more about NAT and FW][nat-fw]
+References
+- [running with NAT on OVH][nat-ovh]
+- [NAT and Firewall][nat-fw]
 
 [nat-ovh]: https://bobcares.com/blog/setup-nat-on-proxmox/
 [nat-fw]: https://forum.proxmox.com/threads/no-more-nat-masquerading-after-firewall-usage.63459/

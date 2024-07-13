@@ -62,8 +62,8 @@ dc/ovh8
 IN REJECT -source +blacklist4 -log warning
 IN REJECT -source +blacklist6 -log warning
 
-|IN ACCEPT -source +dc/ovh -p icmp -log nolog    # only allow ping from OVH monitoring servers
-|IN ACCEPT -source +dc/admins -p icmp -log nolog # only allow ping from admins -
+IN ACCEPT -source +dc/ovh -p icmp -log nolog    # only allow ping from OVH monitoring servers
+IN ACCEPT -source +dc/admins -p icmp -log nolog # only allow ping from admins -
 IN ACCEPT -p icmp -log nolog # if you wish to allow pings from all enable this
 
 # Control - admin panels (only leave yours enabled)

@@ -24,11 +24,11 @@ IN ACCEPT -source +dc/admins -p icmp -log nolog
 
 # Control - admin panels (only leave yours enabled)
 
-|IN ACCEPT -p tcp -dport  2082 -log nolog # Cpanel
-|IN ACCEPT -p tcp -dport  2083 -log nolog # Cpanel there are several more ports for Cpanel!
-|IN ACCEPT -p tcp -dport  2222 -log nolog # DirectAdmin
-|IN ACCEPT -p tcp -dport  8443 -log nolog # Plesk
-IN ACCEPT -p tcp -dport  9000 -log nolog # Portainer
+|IN ACCEPT -p tcp -dport 2082 -log nolog # Cpanel
+|IN ACCEPT -p tcp -dport 2083 -log nolog # Cpanel there are several more ports for Cpanel!
+|IN ACCEPT -p tcp -dport 2222 -log nolog # DirectAdmin
+|IN ACCEPT -p tcp -dport 8443 -log nolog # Plesk
+IN ACCEPT -p tcp -dport 9000 -log nolog # Portainer
 IN ACCEPT -p tcp -dport 10000 -log nolog # Virtualmin
 IN ACCEPT -p udp -dport 10000 -log nolog # Virtualmin
 IN ACCEPT -p tcp -dport 20000 -log nolog # Virtualmin Usermin
@@ -38,21 +38,21 @@ IN ACCEPT -p tcp -dport 10050 -log nolog # Zabbix (monitoring)
 
 # Generic services
 
-|IN ACCEPT -p tcp -dport    20 -log nolog    # ftp, please don't use ftp
-|IN ACCEPT -p tcp -dport    21 -log nolog    # ftp, see above
-IN ACCEPT -p tcp -dport    22 -log nolog    # ssh, you need this
-IN ACCEPT -p tcp -dport    25 -log nolog    # smtp, you need this
-IN ACCEPT -p tcp -dport    53 -log nolog    # dns / bind
-IN ACCEPT -p tcp -dport    80 -log nolog    # http
-IN ACCEPT -p tcp -dport   110 -log nolog    # pop3
-IN ACCEPT -p tcp -dport   143 -log nolog    # imap
-IN ACCEPT -p tcp -dport   443 -log nolog    # https
-IN ACCEPT -p tcp -dport   465 -log nolog    # smtp over tls
-IN ACCEPT -p tcp -dport   587 -log nolog    # smtp (exim/starttls)
-IN ACCEPT -p tcp -dport   993 -log nolog    # imap ssl
-IN ACCEPT -p tcp -dport   995 -log nolog    # pop3 ssl
+|IN ACCEPT -p tcp -dport 20 -log nolog    # ftp, please don't use ftp
+|IN ACCEPT -p tcp -dport 21 -log nolog    # ftp, see above
+IN ACCEPT -p tcp -dport 22 -log nolog    # ssh, you need this
+IN ACCEPT -p tcp -dport 25 -log nolog    # smtp, you need this
+IN ACCEPT -p tcp -dport 53 -log nolog    # dns / bind
+IN ACCEPT -p tcp -dport 80 -log nolog    # http
+IN ACCEPT -p tcp -dport 110 -log nolog    # pop3
+IN ACCEPT -p tcp -dport 143 -log nolog    # imap
+IN ACCEPT -p tcp -dport 443 -log nolog    # https
+IN ACCEPT -p tcp -dport 465 -log nolog    # smtp over tls
+IN ACCEPT -p tcp -dport 587 -log nolog    # smtp (exim/starttls)
+IN ACCEPT -p tcp -dport 993 -log nolog    # imap ssl
+IN ACCEPT -p tcp -dport 995 -log nolog    # pop3 ssl
 
-|IN ACCEPT -p tcp -dport  2077 -log nolog    # WebDAV
-|IN ACCEPT -p tcp -dport  2078 -log nolog    # WebDAV ssl
-|IN ACCEPT -p tcp -dport  2079 -log nolog    # CalDAV and CardDAV
-|IN ACCEPT -p tcp -dport  2080 -log nolog    # CalDAV and CardDAV ssl
+|IN ACCEPT -p tcp -dport 2077 -log nolog    # WebDAV
+|IN ACCEPT -p tcp -dport 2078 -log nolog    # WebDAV ssl
+|IN ACCEPT -p tcp -dport 2079 -log nolog    # CalDAV and CardDAV
+|IN ACCEPT -p tcp -dport 2080 -log nolog    # CalDAV and CardDAV ssl
