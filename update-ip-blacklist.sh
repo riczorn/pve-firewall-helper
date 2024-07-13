@@ -21,7 +21,7 @@ function showHelp {
   echo -e "Syntax\n  ./update-ip-blacklist.sh "
   echo -e "      will update IPv4 rules only (quick)\n"
 	echo -e "Command line options\n----------------------"
-  echo -e "  --ipv4         will update IPv4 rules"
+#  echo -e "  --ipv4         will update IPv4 rules"
 	echo -e "  --all          will update IPv4 AND IPv6 rules"
 	echo -e "  --clusterfile=/etc/pve/firewall/cluster.fw"
 	echo -e "                 location of the cluster.fw file"
@@ -65,7 +65,7 @@ function buildIPv6 {
 	ls | sort -h | tail -n 30 | xargs -i  /usr/bin/cat "{}/{}.ipv6" > $SOURCE
 	# now I'm the db folder; sort and uniq to the destination folder:
 	DESTINATION="../abuseipdb-s100-30d.ipv6"
-	cat $SOURCE | sort | uniq > "$DESTINATION"
+	cat "$SOURCE" | sort | uniq > "$DESTINATION"
 	cd ../..
 }
 
@@ -73,7 +73,8 @@ function buildIPv6 {
 parseOptions $@ || exit 1
 echo -e "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
 
-rm -rf tmp/* 2> /dev/null
+rm -rf tmp/blocklist-abuseipdb-main 2> /dev/null
+rm -f  tmp/abuseipdb* 2> /dev/null
 mkdir tmp 2> /dev/null
 cd tmp
 
@@ -93,6 +94,7 @@ else
 	rm main.zip
 	FILEv4=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv4
 	buildIPv6 blocklist-abuseipdb-main/
+	echo " IPv6 malicious hosts file created "
 	FILEv6=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv6
 fi
 
@@ -135,25 +137,37 @@ fi
 # Add a comment with the number of hosts to the ip range.
 CIDR=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
 LINES=`wc -l $FILEv4 | tr -s ' ' | cut -f 1 -d ' '`
-LINESv6=`wc -l $FILEv6 | tr -s ' ' | cut -f 1 -d ' '`
-MSGv6=""
-if [[ $LINESv6 -gt 5 ]]; then
-	MSGv6="plus $LINESv6 IPv6"
+
+
+
+if [[ -f "$FILEv6" ]]; then
+
+	LINESv6=`wc -l $FILEv6 | tr -s ' ' | cut -f 1 -d ' '`
+	if [[ "$LINESv6" -gt 5 ]]; then
+		cat $FILEv6 > iprange6.txt
+	fi
+fi
+
+
 echo '# this will be filled with the updated blacklist all the way down to the [ RULES ] below.' >> pre.txt
-echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\nScript: $0\n" >> iprange.txt
 
 # Create the updated $CLUSTERFILE
 cat pre.txt > $CLUSTERFILE
 
-if [[ -e "$FILEv6" ]]; then
-	cat $FILEv6 >> $CLUSTERFILE
+MSGv6=""
+if [[ -e "iprange6.txt" ]]; then
+	cat iprange6.txt >> $CLUSTERFILE
+	LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
+	MSGv6="plus $LINESip6 IPv6 addresses"
 else
 	# a sample IPv6 host, not to leave the IPSET blacklist6 empty
 	echo "2001:470:1:332:B0:00:B1:35" >> $CLUSTERFILE
 fi
+
 # The IPv4 header; the list cannot be empty, it's tested above.
 echo -e "\n[IPSET blacklist4]\n" >> $CLUSTERFILE
 cat iprange.txt >> $CLUSTERFILE
+echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\n# Script: $0\n" >> $CLUSTERFILE
 cat post.txt >> $CLUSTERFILE
 
 echo "File created: `ls -lah $CLUSTERFILE`"
@@ -161,10 +175,12 @@ echo "File created: `ls -lah $CLUSTERFILE`"
 echo "Compile the PVE Firewall Rules: pve-firewall compile"
 pve-firewall compile
 
-for i in $(seq 1 50); do
-    printf . # $i
+for i in $(seq 1 50);
+do
+    printf .
 		sleep 0.15
 done
+
 echo -e "\n"
 
 echo "Restart the PVE Firewall"

@@ -2,7 +2,7 @@
 ## Proxmox firewall configuration helper
 
 Generic Cluster and CT/VM Firewall Rules for Proxmox PVE Firewall
-Includes update and insert of abuseipdb 60 days rules.
+Includes update and insert of abuseipdb 30 days rules.
 By Riccardo Zorn
 License: GPL 2.0
 fasterweb.net
@@ -13,7 +13,7 @@ fasterweb.net
 [pve-firewall-helper]: https://github.com/riczorn/pve-firewall-helper
 [abuseipdb]: https://github.com/borestad/blocklist-abuseipdb/
 
-## Please be careful. When you enable the firewall, you may block yourself out.
+### Please be careful. When you enable the firewall, you may block yourself out.
 
 ## Description
 
@@ -92,3 +92,30 @@ This is meant to assist you in quickly creating a set of firewall rules that is 
 
 is the script that will download the updated abuseipdb list(s),
 and update the `/etc/pve/firewall/cluster.fw`'s `blocklist4-6` `IPSET`s.
+
+### Syntax
+
+  (update IPv4 rules only - quick)
+  ```bash
+  ./update-ip-blacklist.sh
+  ```
+
+### Command line options
+```
+  --all          will update IPv4 AND IPv6 rules
+  --clusterfile=/etc/pve/firewall/cluster.fw
+                 location of the cluster.fw file
+```
+
+## How it works
+If only IPv4 rules are required, only abuseipdb-s100-30d.ipv4, a 1MB download.
+
+If IPv6 rules are included (--all) then the full zip from the repo is downloaded, then the individual days sorted, in order to extract the latest 30 days's worth of IPv6 to block. This takes longer as currently the repo is 100MB and goes all the way back to 2022.
+
+In July 2024, the 30-days list of IPv4 addresses was 75,000 addresses, which iprange grouped in 70,000 CIDR ranges, and only 170 IPv6 hosts
+
+## scheduling
+
+Since the IPv6 addresses are very few, and quite irrelevant at the moment, you may schedule a monthly download of the full archive, and quick daily updates of the IPv4 database.
+20 4	* * 7	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
+40 4	* * *	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
