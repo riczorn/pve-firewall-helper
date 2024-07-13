@@ -128,6 +128,23 @@ iface vmbr1 inet static
 post-up   iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
 post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
 ```
+You can test the configuration with:
+```bash
+ifup -a --no-act
+```
+Then you can apply the changes:
+```bash
+service networking restart
+```
+
+Restart all your containers and VMs now, as restarting the network isolates their connection.
+
+View the new configuration:
+```bash
+ip route show
+...
+192.168.63.0/24 dev vmbr1 proto kernel scope link src 192.168.63.1
+```
 
 References
 - [running with NAT on OVH][nat-ovh]
