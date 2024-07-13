@@ -30,7 +30,7 @@ It also invokes `apt install zip iprange`: replace it with your favourite packag
 Clone the repo with your favourite method i.e.
 
 ```
-[/opt]# git clone https://github.com/riczorn/pve-firewall-helper.githubusercontent
+[/opt]# git clone https://github.com/riczorn/pve-firewall-helper.git
 ```
 
 ## Syntax
