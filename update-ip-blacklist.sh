@@ -15,6 +15,48 @@
 MODE=ipv4 # all | ipv4
 CLUSTERFILE='/etc/pve/firewall/cluster.fw'
 
+
+function showHelp {
+  echo -e "Proxmox PVE Firewall Rules updated\n"
+  echo -e "Syntax\n  ./update-ip-blacklist.sh "
+  echo -e "      will update IPv4 rules only (quick)\n"
+	echo -e "Command line options\n----------------------"
+  echo -e "  --ipv4									will update IPv4 rules"
+	echo -e "  --all                  will update IPv4 AND IPv6 rules"
+	echo -e "  --clusterfile=/etc/pve/firewall/cluster.fw"
+	echo -e "                         location of the cluster.fw file"
+}
+
+for i in "$@"; do
+  case $i in
+    -ipv4|-v4|--ipv4|--v4|--IPv4|-IPv4|--IPV4|-IPV4)
+      MODE=ipv4
+      shift # past argument with no value
+      ;;
+		-a|--all)
+      MODE=all
+      shift # past argument with no value
+      ;;
+		-c=*|--clusterfile=*)
+      CLUSTERFILE="${i#*=}"
+      shift # past argument=value
+      ;;
+		-h|--help)
+			showhelp
+			exit 0
+    -*|--*)
+      echo "Unknown option $i"
+      exit 1
+      ;;
+
+    *)
+      ;;
+  esac
+done
+
+echo -e "MODE: $MODE; Cluster file: $CLUSTERFILE"
+exit 0
+
 echo -e "------\n`date`\nUpdating from abuseipdb\n  # $0\n-----"
 
 rm -rf tmp/* 2> /dev/null

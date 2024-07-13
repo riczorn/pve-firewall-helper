@@ -12,27 +12,52 @@ PVE_FW_DIR=/etc/pve/firewall
 
 function showHelp {
   echo -e "Proxmox PVE Firewall Rules installer\n"
-  echo -e "Syntax\n  ./install.sh install "
+  echo -e "Syntax\n  ./install.sh --install "
   echo -e "      will copy firewall .cw files to $PVE_FW_DIR\n"
-  echo -e "  ./install.sh install slow"
+  echo -e "  ./install.sh --install --slowdown"
   echo -e "      will make Proxmox firewall rules update every 1200 seconds "
   echo -e "      instead of 10\n"
-
+  echo -e "This will overwrite your firewall configuration. A backup is made\n"
 }
 
-if [ "$1" == "install" ]; then
-  echo "Installing"
-else
+ACTION=0
+SLOWDOWN=0
+
+for i in "$@"; do
+  case $i in
+    -i|--install)
+      ACTION=install
+      echo "Installing..."
+      shift # past argument with no value
+      ;;
+    -s|--slow|--slowdown)
+      SLOWDOWN=1
+      shift # past argument with no value
+      ;;
+    -h|--help)
+			showhelp
+			exit 0
+      ;;
+    -*|--*)
+      echo "Unknown option $i"
+      exit 1
+      ;;
+    *)
+      ;;
+  esac
+done
+
+if [ "$ACTION" != "install" ]; then
   showHelp
-  exit
+  exit 0
 fi
 
 LOG=pve-firewall-helper_install_log
 
 touch $LOG
-tail -f $LOG &
+tail -f $LOG  2> /dev/null &
 
-apt install -y zip iprange
+apt -qq -y install zip iprange
 
 echo "Backup the initial configuration files of $PVE_FW_DIR" > $LOG
 
@@ -41,7 +66,7 @@ echo "  to $BACKUPFILE" >> $LOG
 
 tar czf $BACKUPFILE $PVE_FW_DIR/*.fw
 
-if [ "$2" == "slow" ]; then
+if [ "$SLOWDOWN" == "1" ]; then
   echo "Installing"
   # Force updating the firewall rules every 1200 seconds instead of 10:
   sed -i 's/updatetime = 10;/updatetime = 1200;/g' /usr/share/perl5/PVE/Service/pve_firewall.pm
