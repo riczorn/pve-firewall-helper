@@ -27,30 +27,30 @@ function showHelp {
 	echo -e "                 location of the cluster.fw file"
 }
 
-function parseParams {
+function parseOptions {
 	for i in "$@"; do
 	  case $i in
 	    -ipv4|-v4|--ipv4|--v4|--IPv4|-IPv4|--IPV4|-IPV4)
-	      MODE=ipv4
+	      export MODE=ipv4
 	      shift # past argument with no value
 	      ;;
 			-a|--all)
-	      MODE=all
+	      export MODE=all
 	      shift # past argument with no value
 	      ;;
 			-c=*|--clusterfile=*)
-	      CLUSTERFILE="${i#*=}"
+	      export CLUSTERFILE="${i#*=}"
 	      shift # past argument=value
 	      ;;
 			-h|--help)
 				showHelp
-				exit 0
+				return 1
 				;;
 	    -*|--*)
-	      echo "Unknown option $i"
-	      exit 1
+	      echo -e "\nUnknown option $i\n\n"
+				showHelp
+	      return 1
 	      ;;
-
 	    *)
 	      ;;
 	  esac
@@ -58,7 +58,7 @@ function parseParams {
 	}
 
 # echo -e "MODE: $MODE; Cluster file: $CLUSTERFILE"
-parseParams
+parseOptions $@ || exit 1
 echo -e "------\n`date`\nUpdating from abuseipdb\n  # $0\n-----"
 
 rm -rf tmp/* 2> /dev/null
@@ -153,7 +153,8 @@ echo ""
 
 echo "Restart the PVE Firewall"
 pve-firewall restart
-echo -e "------\nFinished\n\n"
+echo -e "------\nThe End.\n\n"
+
 # you may delete the temporary folder at the end, but I keep it just in case I
 # need to debug it later:
 # rm -rf tmp/* 2> /dev/null
