@@ -55,11 +55,23 @@ function parseOptions {
 	      ;;
 	  esac
 	done
-	}
+}
+
+function buildIPv6 {
+	cd "$1/db"
+	# ls | sort -h | tail -n 30 | xargs -i  /usr/bin/ls "{}/{}.ipv6"
+	# grab the last 30 days of ipv6 addresses. Add together, sort and uniq:
+	SOURCE=abuseipdb-s100-30d.ipv6
+	ls | sort -h | tail -n 30 | xargs -i  /usr/bin/cat "{}/{}.ipv6" > $SOURCE
+	# now I'm the db folder; sort and uniq to the destination folder:
+	DESTINATION="../abuseipdb-s100-30d.ipv6"
+	cat $SOURCE | sort | uniq > "$DESTINATION"
+	cd ../..
+}
 
 # echo -e "MODE: $MODE; Cluster file: $CLUSTERFILE"
 parseOptions $@ || exit 1
-echo -e "------\n`date`\nUpdating from abuseipdb\n  # $0\n-----"
+echo -e "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
 
 rm -rf tmp/* 2> /dev/null
 mkdir tmp 2> /dev/null
@@ -80,7 +92,8 @@ else
 	RETURN_VALUE=$?
 	rm main.zip
 	FILEv4=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv4
-	FILEv6=blocklist-abuseipdb-main/db/abuseipdb-s100-latest.ipv6
+	buildIPv6 blocklist-abuseipdb-main/
+	FILEv6=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv6
 fi
 
 if [[ $RETURN_VALUE -ne 0 ]]; then
@@ -122,9 +135,12 @@ fi
 # Add a comment with the number of hosts to the ip range.
 CIDR=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
 LINES=`wc -l $FILEv4 | tr -s ' ' | cut -f 1 -d ' '`
-
+LINESv6=`wc -l $FILEv6 | tr -s ' ' | cut -f 1 -d ' '`
+MSGv6=""
+if [[ $LINESv6 -gt 5 ]]; then
+	MSGv6="plus $LINESv6 IPv6"
 echo '# this will be filled with the updated blacklist all the way down to the [ RULES ] below.' >> pre.txt
-echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges by $0\n" >> iprange.txt
+echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\nScript: $0\n" >> iprange.txt
 
 # Create the updated $CLUSTERFILE
 cat pre.txt > $CLUSTERFILE
@@ -149,7 +165,7 @@ for i in $(seq 1 50); do
     printf . # $i
 		sleep 0.15
 done
-echo ""
+echo -e "\n"
 
 echo "Restart the PVE Firewall"
 pve-firewall restart
