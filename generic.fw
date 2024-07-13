@@ -40,10 +40,10 @@ IN ACCEPT -p tcp -dport 443 -log nolog    # https
 
 # Control - admin panels (only leave yours enabled)
 
-|IN ACCEPT -p tcp -dport 2082 -log nolog # Cpanel
-|IN ACCEPT -p tcp -dport 2083 -log nolog # Cpanel there are several more ports for Cpanel!
-|IN ACCEPT -p tcp -dport 2222 -log nolog # DirectAdmin
-|IN ACCEPT -p tcp -dport 8443 -log nolog # Plesk
+# |IN ACCEPT -p tcp -dport 2082 -log nolog # Cpanel
+# |IN ACCEPT -p tcp -dport 2083 -log nolog # Cpanel there are several more ports for Cpanel!
+# |IN ACCEPT -p tcp -dport 2222 -log nolog # DirectAdmin
+# |IN ACCEPT -p tcp -dport 8443 -log nolog # Plesk
 |IN ACCEPT -p tcp -dport 9000 -log nolog # Portainer
 |IN ACCEPT -p tcp -dport 10000 -log nolog # Virtualmin
 |IN ACCEPT -p udp -dport 10000 -log nolog # Virtualmin
@@ -51,3 +51,9 @@ IN ACCEPT -p tcp -dport 443 -log nolog    # https
 |IN ACCEPT -p udp -dport 20000 -log nolog # Virtualmin Usermin
 
 IN ACCEPT -p tcp -dport 10050 -log nolog # Zabbix (monitoring)
+
+
+# |IN ACCEPT -p tcp -dport 2077 -log nolog    # WebDAV
+# |IN ACCEPT -p tcp -dport 2078 -log nolog    # WebDAV ssl
+# |IN ACCEPT -p tcp -dport 2079 -log nolog    # CalDAV and CardDAV
+# |IN ACCEPT -p tcp -dport 2080 -log nolog    # CalDAV and CardDAV ssl
