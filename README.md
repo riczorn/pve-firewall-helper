@@ -13,7 +13,7 @@ fasterweb.net
 [pve-firewall-helper]: https://github.com/riczorn/pve-firewall-helper
 [abuseipdb]: https://github.com/borestad/blocklist-abuseipdb/
 
-### Please be careful. When you enable the firewall, you may block yourself out.
+#### Please be careful. When you enable the firewall, you may block yourself out.
 
 ## Description
 
@@ -25,7 +25,13 @@ Proxmox, including a script to update a massive blacklist of abuseipdb into the 
 The install.sh makes a copy of your current configuration in /tmp/firewall-backup-date.tar.gz
 then proceeds to create a firewall configuration for the Datacenter, and a firewall configuration for each of the containers and virtual machines installed, based on the files cluster.fw and generic.fw included.
 
-It also invokes `apt install zip iprange` replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
+It also invokes `apt install zip iprange`: replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
+
+Clone the repo with your favourite method i.e.
+
+```
+[/opt]# git clone https://github.com/riczorn/pve-firewall-helper.githubusercontent
+```
 
 ## Syntax
 
@@ -110,12 +116,15 @@ and update the `/etc/pve/firewall/cluster.fw`'s `blocklist4-6` `IPSET`s.
 ## How it works
 If only IPv4 rules are required, only abuseipdb-s100-30d.ipv4, a 1MB download.
 
-If IPv6 rules are included (--all) then the full zip from the repo is downloaded, then the individual days sorted, in order to extract the latest 30 days's worth of IPv6 to block. This takes longer as currently the repo is 100MB and goes all the way back to 2022.
+If IPv6 rules are included (--all) then the full zip from the repo is downloaded, then the individual days sorted, in order to extract the latest 30 days's worth of IPv6 to block. This takes longer as currently the repo is 90MB and goes all the way back to 2022.
 
 In July 2024, the 30-days list of IPv4 addresses was 75,000 addresses, which iprange grouped in 70,000 CIDR ranges, and only 170 IPv6 hosts
 
-## scheduling
+## Scheduling
 
-Since the IPv6 addresses are very few, and quite irrelevant at the moment, you may schedule a monthly download of the full archive, and quick daily updates of the IPv4 database.
+Since the IPv6 addresses are very few, and quite irrelevant at the moment, you may schedule a weekly download of the full archive, and quick daily updates of just the IPv4 database.
+
+```
 20 4	* * 7	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
-40 4	* * *	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
+40 4	* * *	root	/opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
+```

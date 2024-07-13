@@ -14,6 +14,10 @@
 
 MODE=ipv4 # all | ipv4
 CLUSTERFILE='/etc/pve/firewall/cluster.fw'
+RED="\033[38;5;198m"
+GREEN="\033[38;5;043m"
+BLACK="\033[48;5;232m"
+RESET="\033[0m"
 
 
 function showHelp {
@@ -26,6 +30,15 @@ function showHelp {
 	echo -e "  --clusterfile=/etc/pve/firewall/cluster.fw"
 	echo -e "                 location of the cluster.fw file"
 }
+
+function showError {
+	echo -e "$RED$@$RESET"
+}
+
+function showInfo {
+	echo -e "$GREEN$@$RESET"
+}
+
 
 function parseOptions {
 	for i in "$@"; do
@@ -47,7 +60,7 @@ function parseOptions {
 				return 1
 				;;
 	    -*|--*)
-	      echo -e "\nUnknown option $i\n\n"
+	      showError "\nUnknown option $i\n\n"
 				showHelp
 	      return 1
 	      ;;
@@ -71,13 +84,13 @@ function buildIPv6 {
 
 # echo -e "MODE: $MODE; Cluster file: $CLUSTERFILE"
 parseOptions $@ || exit 1
-echo -e "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
+showInfo "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
 
 rm -rf tmp/blocklist-abuseipdb-main 2> /dev/null
 rm -f  tmp/abuseipdb* 2> /dev/null
 mkdir tmp 2> /dev/null
 cd tmp
-
+GREEN="\033[38;5;120m"
 echo "Download and extract the updated lists"
 
 FILEv4=""
@@ -99,12 +112,12 @@ else
 fi
 
 if [[ $RETURN_VALUE -ne 0 ]]; then
-	echo "Error downloading to file `pwd`/$FILEv4"
+	showError "Error downloading to file `pwd`/$FILEv4"
 	exit
 fi
 
 echo "File `pwd`/$FILEv4 downloaded"
-
+GREEN="\033[38;5;190m"
 # make a backup
 rm $CLUSTERFILE.bak 2> /dev/null
 cp $CLUSTERFILE $CLUSTERFILE.bak
@@ -120,7 +133,7 @@ PRELINES=`wc -l pre.txt | tr -s ' ' | cut -f 1 -d ' '`
 POSTLINES=`wc -l post.txt | tr -s ' ' | cut -f 1 -d ' '`
 
 if [ "$PRELINES" -lt "5" ] || [ "$POSTLINES" -lt "5" ]; then
-	echo "ERROR $CLUSTERFILE is not in a recognized format, exiting"
+	showError "ERROR $CLUSTERFILE is not in a recognized format, exiting"
 	exit
 fi
 
@@ -130,7 +143,7 @@ iprange  $FILEv4  > iprange.txt
 # Ensure we downloaded enough tests
 IPRANGELINES=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
 if [ "$IPRANGELINES" -lt "500" ]; then
-	echo "ERROR IPv4 range only contains $IPRANGELINES lines"
+	showError "ERROR IPv4 range only contains $IPRANGELINES lines"
 	exit
 fi
 
@@ -170,22 +183,23 @@ cat iprange.txt >> $CLUSTERFILE
 echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\n# Script: $0\n" >> $CLUSTERFILE
 cat post.txt >> $CLUSTERFILE
 
-echo "File created: `ls -lah $CLUSTERFILE`"
-
-echo "Compile the PVE Firewall Rules: pve-firewall compile"
+showInfo "File created: `ls -lah $CLUSTERFILE`"
+GREEN="\033[38;5;226m"
+showInfo "Compile the PVE Firewall Rules: pve-firewall compile"
 pve-firewall compile
-
-for i in $(seq 1 50);
+printf "$BLACK"
+for i in $(seq 20 6 240);
 do
-    printf .
+		printf "\033[38;5;${i}m."
 		sleep 0.15
 done
 
-echo -e "\n"
+echo -e "$RESET\n"
 
-echo "Restart the PVE Firewall"
+showInfo "Restart the PVE Firewall"
 pve-firewall restart
-echo -e "------\nThe End.\n\n"
+GREEN="\033[38;5;046m"
+showInfo "------\nThe End.\n\n"
 
 # you may delete the temporary folder at the end, but I keep it just in case I
 # need to debug it later:
