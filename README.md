@@ -161,7 +161,17 @@ In July 2024, the 30-days list of IPv4 addresses was 75,000 addresses, which ipr
 
 Since the IPv6 addresses are very few, and quite irrelevant at the moment, you may schedule a weekly download of the full archive, and quick daily updates of just the IPv4 database.
 
+### With symbolic links
+```bash
+ln -s /opt/pve-firewall-helper/update-ip-blacklist.sh /etc/cron.daily/update_ip_blacklist
+
 ```
-20 4	* * 7	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
-40 4	* * *	root	/opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
+
+### Edit Crontab file
+
+`nano /etc/crontab`
+
+```js
+20 4 * * 7	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
+40 4 * * *	root	/opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 ```
