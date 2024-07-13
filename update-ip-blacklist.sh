@@ -173,8 +173,8 @@ if [[ -e "iprange6.txt" ]]; then
 	LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
 	MSGv6="plus $LINESip6 IPv6 addresses"
 else
-	# a sample IPv6 host, not to leave the IPSET blacklist6 empty
-	echo "2001:470:1:332:B0:00:B1:35" >> $CLUSTERFILE
+	# a sample IPv6 host
+	# echo "2001:470:1:332:B0:00:B1:35" >> $CLUSTERFILE
 fi
 
 # The IPv4 header; the list cannot be empty, it's tested above.
@@ -186,7 +186,7 @@ cat post.txt >> $CLUSTERFILE
 showInfo "File created: `ls -lah $CLUSTERFILE`"
 GREEN="\033[38;5;226m"
 showInfo "Compile the PVE Firewall Rules: pve-firewall compile"
-pve-firewall compile
+pve-firewall compile > /dev/null
 printf "$BLACK"
 for i in $(seq 20 6 240);
 do
