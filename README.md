@@ -25,7 +25,11 @@ Proxmox, including a script to update a massive blacklist of abuseipdb into the 
 The install.sh makes a copy of your current configuration in /tmp/firewall-backup-date.tar.gz
 then proceeds to create a firewall configuration for the Datacenter, and a firewall configuration for each of the containers and virtual machines installed, based on the files cluster.fw and generic.fw included.
 
-It also invokes `apt install zip iprange`: replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
+It also invokes:
+```bash
+apt install zip iprange
+```
+Replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
 
 Clone the repo with your favourite method i.e.
 
@@ -99,9 +103,9 @@ If everything is fine at the datacenter level, you might want to make a backup o
 
 ## `/etc/pve/firewall/101.fw`
 
-This is the default file that is created for each of the CTs and VMs, using the `generic.fw` included. Each VM's firewall is enabled by default, but it is set to ALLOW all traffic, except for the blacklist. Some typical LAMP + mail services are enabled, other less common services are created for your convenience but they are not enabled.
+This is the default file that is created for each of the CTs and VMs, using the `generic.fw` included. Each VM's firewall is enabled by default, but it is set to ALLOW all traffic, except for the blacklist. Some typical LAMP services are enabled, others are created for your convenience but they are not enabled.
 
-This is meant to assist you in quickly creating a set of firewall rules that is meaningful for your machine from the Proxmox interface.
+This is meant to assist you in quickly creating a set of firewall rules that is meaningful for your machine directly from the Proxmox interface.
 
 ## If you use NAT - Network Address Translation
 
