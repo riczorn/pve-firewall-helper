@@ -2,16 +2,23 @@
 ## Proxmox firewall configuration helper
 
 Generic Cluster and CT/VM Firewall Rules for Proxmox PVE Firewall
-Includes update and insert of abuseipdb 30 days rules.
+Includes update and insert of
+
+- [AbuseIpDb's public IP worst IPv4 & IPv6 offenders, 30 days][abuseipdb]
+- [Duggytuxy's Malicious IP Addresses][duggytuxy]
+- [ShadowWhisperer's botnet IPs sorted lists][ShadowWhisperer]
+
 By Riccardo Zorn
 License: GPL 2.0
 fasterweb.net
 
-- [Project Home][pve-firewall-helper]
-- [IP worst IPv4 & IPv6 offenders][abuseipdb]
+[Project Home][pve-firewall-helper]
 
 [pve-firewall-helper]: https://github.com/riczorn/pve-firewall-helper
 [abuseipdb]: https://github.com/borestad/blocklist-abuseipdb/
+[ShadowWhisperer]: https://github.com/ShadowWhisperer/IPs
+[duggytuxy]: https://github.com/duggytuxy/malicious_ip_addresses
+
 
 #### Please be careful. When you enable the firewall, you may block yourself out.
 

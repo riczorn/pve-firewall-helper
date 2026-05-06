@@ -49,13 +49,15 @@ dc/ovh7
 dc/ovh8
 
 [IPSET zzzblacklist4]
-# this will be filled with the updated blacklist all the way down to the [ RULES ] below.
+# BEGIN_AUTOBLACKLIST4
 1.10.146.175
 # another 75k IPv4 addresses will be added here by `update-ip-blacklist.sh`
+# END_AUTOBLACKLIST4
 
 [IPSET zzzblacklist6]
-# 170 addresses as of July 2024
+# BEGIN_AUTOBLACKLIST6
 2001:470:1:332:B0:00:B1:35
+# END_AUTOBLACKLIST6
 
 [RULES]
 

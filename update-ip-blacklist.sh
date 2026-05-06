@@ -47,15 +47,15 @@ function parseOptions {
 	      export MODE=ipv4
 	      shift # past argument with no value
 	      ;;
-			-a|--all)
+		-a|--all)
 	      export MODE=all
 	      shift # past argument with no value
 	      ;;
-			-c=*|--clusterfile=*)
+		-c=*|--clusterfile=*)
 	      export CLUSTERFILE="${i#*=}"
 	      shift # past argument=value
 	      ;;
-			-h|--help)
+		-h|--help)
 				showHelp
 				return 1
 				;;
@@ -117,72 +117,73 @@ if [[ $RETURN_VALUE -ne 0 ]]; then
 fi
 
 echo "File `pwd`/$FILEv4 downloaded"
+
+# Validate the last line of the downloaded IPv4 file is a complete IP address.
+# A truncated download (e.g. ending in "192.") would cause iprange to emit a
+# broad CIDR like 192.0.0.0/8, banning an entire class-A block.
+LASTLINE=$(tail -1 "$FILEv4")
+if ! echo "$LASTLINE" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}'; then
+	showError "ERROR last line of $FILEv4 is not a valid IPv4 address: '$LASTLINE'"
+	showError "The file may be truncated. Aborting to protect the firewall."
+	exit 1
+fi
+
 GREEN="\033[38;5;190m"
 # make a backup
 rm $CLUSTERFILE.bak 2> /dev/null
 cp $CLUSTERFILE $CLUSTERFILE.bak
 
-# Extract the top and bottom portions of $CLUSTERFILE
-# pre.txt will contain the initial part up to the [IPSET blacklist6]
-# post.txt will contain the RULES. The [IPSET blacklist4] will be added below
-cat $CLUSTERFILE | grep -B 1000000 '\[IPSET zzzblacklist4\]' > pre.txt
-cat $CLUSTERFILE | grep -A 1000000 '\[RULES\]' > post.txt
-
-# Ensure the structure of the .fw file is correct
-PRELINES=`wc -l pre.txt | tr -s ' ' | cut -f 1 -d ' '`
-POSTLINES=`wc -l post.txt | tr -s ' ' | cut -f 1 -d ' '`
-
-if [ "$PRELINES" -lt "5" ] || [ "$POSTLINES" -lt "5" ]; then
-	showError "ERROR $CLUSTERFILE is not in a recognized format, exiting"
-	exit
-fi
+# Verify the cluster.fw contains the required markers
+for MARKER in BEGIN_AUTOBLACKLIST4 END_AUTOBLACKLIST4 BEGIN_AUTOBLACKLIST6 END_AUTOBLACKLIST6; do
+	if ! grep -q "# $MARKER" $CLUSTERFILE; then
+		showError "ERROR $CLUSTERFILE is missing marker '# $MARKER'"
+		showError "Add BEGIN_AUTOBLACKLIST4/END_AUTOBLACKLIST4 and BEGIN_AUTOBLACKLIST6/END_AUTOBLACKLIST6 comments inside the respective [IPSET] sections."
+		exit 1
+	fi
+done
 
 # Combine the IPv4 in CIDR ranges
-iprange  $FILEv4  > iprange.txt
+iprange $FILEv4 > iprange.txt
 
-# Ensure we downloaded enough tests
+# Ensure we downloaded enough entries
 IPRANGELINES=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
 if [ "$IPRANGELINES" -lt "500" ]; then
 	showError "ERROR IPv4 range only contains $IPRANGELINES lines"
-	exit
+	exit 1
 fi
 
-# Add a comment with the number of hosts to the ip range.
 CIDR=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
 LINES=`wc -l $FILEv4 | tr -s ' ' | cut -f 1 -d ' '`
 
-
-
+MSGv6=""
 if [[ -f "$FILEv6" ]]; then
 	LINESv6=`wc -l $FILEv6 | tr -s ' ' | cut -f 1 -d ' '`
 	if [[ "$LINESv6" -gt 5 ]]; then
 		cat $FILEv6 > iprange6.txt
+		LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
+		MSGv6="plus $LINESip6 IPv6 addresses"
 	fi
 fi
 
+# Build the replacement blocks (content only, markers are preserved in the file)
+IPV4_BLOCK="$(cat iprange.txt)
+# $LINES IPv4 addresses in $CIDR CIDR ranges $MSGv6 — updated $(date '+%Y-%m-%d')"
 
-echo '# this will be filled with the updated blacklist all the way down to the [ RULES ] below.' >> pre.txt
-
-# Create the updated $CLUSTERFILE
-cat pre.txt > $CLUSTERFILE
-
-MSGv6=""
+IPV6_BLOCK=""
 if [[ -e "iprange6.txt" ]]; then
-	LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
-	MSGv6="plus $LINESip6 IPv6 addresses"
-# else
-	# a sample IPv6 host
-	# echo "2001:470:1:332:B0:00:B1:35" >> $CLUSTERFILE
+	IPV6_BLOCK="$(cat iprange6.txt)
+# $MSGv6 — updated $(date '+%Y-%m-%d')"
 fi
 
-# The IPv4 header; the list cannot be empty, it's tested above.
-cat iprange.txt >> $CLUSTERFILE
-echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\n" >> $CLUSTERFILE
-
-echo -e "\n[IPSET zzzblacklist6]\n" >> $CLUSTERFILE
-cat iprange6.txt >> $CLUSTERFILE
-echo -e "# $LINES IPv4 addresses added in $CIDR CIDR ranges $MSGv6\n# Script: $0\n" >> $CLUSTERFILE
-cat post.txt >> $CLUSTERFILE
+# Replace content between markers using awk; markers themselves are kept intact.
+# This is resilient to section reordering and manual edits outside the markers.
+awk -v ipv4="$IPV4_BLOCK" -v ipv6="$IPV6_BLOCK" '
+	/# BEGIN_AUTOBLACKLIST4/ { print; print ipv4; skip=1; next }
+	/# END_AUTOBLACKLIST4/   { skip=0 }
+	/# BEGIN_AUTOBLACKLIST6/ { print; if (ipv6 != "") print ipv6; skip=1; next }
+	/# END_AUTOBLACKLIST6/   { skip=0 }
+	!skip { print }
+' $CLUSTERFILE.bak > $CLUSTERFILE
 
 showInfo "File created: `ls -lah $CLUSTERFILE`"
 
