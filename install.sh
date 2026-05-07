@@ -12,14 +12,21 @@ PVE_FW_DIR=/etc/pve/firewall
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 FW_SRC="$INSTALL_DIR/pve"
 
+RED="\033[38;5;198m"
+GREEN="\033[38;5;043m"
+YELLOW="\033[38;5;226m"
+CYAN="\033[38;5;051m"
+RESET="\033[0m"
+
 function showHelp {
-  echo -e "Proxmox PVE Firewall Rules installer\n"
-  echo -e "Syntax\n  ./install.sh --install"
-  echo -e "      will copy firewall files to $PVE_FW_DIR\n"
-  echo -e "  ./install.sh --install --slowdown"
+  echo -e "${GREEN}Proxmox PVE Firewall Rules installer${RESET}\n"
+  echo -e "${YELLOW}Syntax${RESET}"
+  echo -e "  ${CYAN}./install.sh --install${RESET}"
+  echo -e "      will copy firewall files to ${CYAN}$PVE_FW_DIR${RESET}\n"
+  echo -e "  ${CYAN}./install.sh --install --slowdown${RESET}"
   echo -e "      will make Proxmox firewall rules update every 1200 seconds"
   echo -e "      instead of 10\n"
-  echo -e "This will overwrite your firewall configuration. A backup is made\n"
+  echo -e "${RED}This will overwrite your firewall configuration. A backup is made.${RESET}\n"
 }
 
 ACTION=0
