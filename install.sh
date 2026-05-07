@@ -58,7 +58,7 @@ LOG=pve-firewall-helper_install_log
 touch $LOG
 tail -f $LOG  2> /dev/null &
 
-apt -qq -y install zip iprange
+apt -qq -y install zip unzip iprange
 
 echo "Backup the initial configuration files of $PVE_FW_DIR" > $LOG
 

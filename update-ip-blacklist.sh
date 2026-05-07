@@ -71,20 +71,34 @@ function parseOptions {
 }
 
 function buildIPv6 {
-	cd "$1/db"
-	# ls | sort -h | tail -n 30 | xargs -i  /usr/bin/ls "{}/{}.ipv6"
-	# grab the last 30 days of ipv6 addresses. Add together, sort and uniq:
+	local DIR="$1"
+	if [[ ! -d "$DIR/db" ]]; then
+		showError "ERROR buildIPv6: directory $DIR/db not found"
+		return 1
+	fi
+	cd "$DIR/db"
 	SOURCE=abuseipdb-s100-30d.ipv6
-	ls | sort -h | tail -n 30 | xargs -i  /usr/bin/cat "{}/{}.ipv6" > $SOURCE
-	# now I'm the db folder; sort and uniq to the destination folder:
+	ls | sort -h | tail -n 30 | xargs -i /usr/bin/cat "{}/{}.ipv6" > "$SOURCE"
 	DESTINATION="../abuseipdb-s100-30d.ipv6"
-	cat "$SOURCE" | sort | uniq > "$DESTINATION"
+	sort < "$SOURCE" | uniq > "$DESTINATION"
 	cd ../..
 }
 
 # echo -e "MODE: $MODE; Cluster file: $CLUSTERFILE"
 parseOptions $@ || exit 1
 showInfo "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
+
+# Check required tools before doing anything
+for TOOL in wget iprange; do
+	if ! command -v $TOOL &>/dev/null; then
+		showError "ERROR required tool '$TOOL' not found. Run: apt install $TOOL"
+		exit 1
+	fi
+done
+if [[ "$MODE" == "all" ]] && ! command -v unzip &>/dev/null; then
+	showError "ERROR 'unzip' not found (required for --all mode). Run: apt install unzip"
+	exit 1
+fi
 
 rm -rf tmp/blocklist-abuseipdb-main 2> /dev/null
 rm -f  tmp/abuseipdb* 2> /dev/null
@@ -97,26 +111,34 @@ FILEv4=""
 FILEv6=""
 if [ "$MODE" == "ipv4" ]; then
 	wget -q --show-progress https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4
-	RETURN_VALUE=$?
-
+	if [[ $? -ne 0 ]]; then
+		showError "Error downloading IPv4 list"
+		exit 1
+	fi
 	FILEv4=abuseipdb-s100-30d.ipv4
 else
 	wget -q --show-progress https://github.com/borestad/blocklist-ip/archive/refs/heads/main.zip
+	if [[ $? -ne 0 ]]; then
+		showError "Error downloading main.zip"
+		exit 1
+	fi
 	unzip -q main.zip
-	RETURN_VALUE=$?
+	if [[ $? -ne 0 ]]; then
+		showError "Error extracting main.zip"
+		rm -f main.zip
+		exit 1
+	fi
 	rm main.zip
 	FILEv4=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv4
-	buildIPv6 blocklist-abuseipdb-main/
+	if ! buildIPv6 blocklist-abuseipdb-main/; then
+		showError "ERROR building IPv6 list. Aborting."
+		exit 1
+	fi
 	echo " IPv6 malicious hosts file created "
 	FILEv6=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv6
 fi
 
-if [[ $RETURN_VALUE -ne 0 ]]; then
-	showError "Error downloading to file `pwd`/$FILEv4"
-	exit
-fi
-
-echo "File `pwd`/$FILEv4 downloaded"
+echo "File $(pwd)/$FILEv4 downloaded"
 
 # Validate the last line of the downloaded IPv4 file is a complete IP address.
 # A truncated download (e.g. ending in "192.") would cause iprange to emit a
