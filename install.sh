@@ -9,11 +9,13 @@
 # https://github.com/riczorn/pve-firewall-helper
 
 PVE_FW_DIR=/etc/pve/firewall
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+FW_SRC="$INSTALL_DIR/pve"
 
 function showHelp {
   echo -e "Proxmox PVE Firewall Rules installer\n"
   echo -e "Syntax\n  ./install.sh --install "
-  echo -e "      will copy firewall .cw files to $PVE_FW_DIR\n"
+  echo -e "      will copy firewall files to $PVE_FW_DIR\n"
   echo -e "  ./install.sh --install --slowdown"
   echo -e "      will make Proxmox firewall rules update every 1200 seconds "
   echo -e "      instead of 10\n"
@@ -28,14 +30,14 @@ for i in "$@"; do
     -i|--install)
       ACTION=install
       echo "Installing..."
-      shift # past argument with no value
+      shift
       ;;
     -s|--slow|--slowdown)
       SLOWDOWN=1
-      shift # past argument with no value
+      shift
       ;;
     -h|--help)
-			showhelp
+			showHelp
 			exit 0
       ;;
     -*|--*)
@@ -64,76 +66,59 @@ echo "Backup the initial configuration files of $PVE_FW_DIR" > $LOG
 
 BACKUPFILE="/tmp/firewall-backup-$(date +%y-%m-%d).tar.gz"
 echo "  to $BACKUPFILE" >> $LOG
-
-tar czf $BACKUPFILE $PVE_FW_DIR/*.fw
+tar czf $BACKUPFILE $PVE_FW_DIR/*.fw 2>/dev/null || true
 
 if [ "$SLOWDOWN" == "1" ]; then
-  echo "Installing"
   # Force updating the firewall rules every 1200 seconds instead of 10:
   sed -i 's/updatetime = 10;/updatetime = 1200;/g' /usr/share/perl5/PVE/Service/pve_firewall.pm
 fi
 
-
-INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
-FW_STORE="$INSTALL_DIR/pve-firewall"
-SYSTEMD_SERVICE=/etc/systemd/system/pve-firewall-mount.service
-
-# Seed the local firewall store: start from any existing /etc/pve/firewall files,
-# then overlay cluster.fw and generic.fw from this repo.
-echo "Seeding $FW_STORE from $PVE_FW_DIR and repo files..." >> $LOG
-mkdir -p "$FW_STORE"
-cp $PVE_FW_DIR/*.fw "$FW_STORE/" 2>/dev/null || true
-
-echo "Copy initial firewall rules to $FW_STORE/" >> $LOG
-cp cluster.fw "$FW_STORE/"
-cp blacklist.fw "$FW_STORE/"
-
-for P in `/usr/bin/lxc-ls`
-do
-        if [[ ! -f "$FW_STORE/$P.fw" ]]; then
-                echo -e "  Copy initial firewall rules for the CT $P" >> $LOG
-                cp generic.fw "$FW_STORE/$P.fw"
-        else
-                echo -e "  Skipping CT $P — $FW_STORE/$P.fw already exists" >> $LOG
-        fi
+# Copy cluster.fw and all blacklist templates
+echo "Copying cluster.fw and blacklist templates to $PVE_FW_DIR/" >> $LOG
+cp "$FW_SRC/cluster.fw" "$PVE_FW_DIR/"
+for BL in "$FW_SRC"/blacklist_*.fw; do
+	cp "$BL" "$PVE_FW_DIR/"
+	echo "  copied $(basename $BL)" >> $LOG
 done
 
-for P in `/usr/sbin/qm list | grep -v 'VMID' | tr -s ' ' | cut -d ' ' -f 2`
-do
-        if [[ ! -f "$FW_STORE/$P.fw" ]]; then
-                echo -e "  Copy initial firewall rules for the VM $P" >> $LOG
-                cp generic.fw "$FW_STORE/$P.fw"
-        else
-                echo -e "  Skipping VM $P — $FW_STORE/$P.fw already exists" >> $LOG
-        fi
+# Copy generic.fw for CTs and VMs that don't have a config yet;
+# patch IN REJECT blacklist rules into all existing *.fw files.
+REJECT_BLOCK="IN REJECT -source +zzzblacklist4_1 -log warning
+IN REJECT -source +zzzblacklist4_2 -log warning
+IN REJECT -source +zzzblacklist4_3 -log warning
+IN REJECT -source +zzzblacklist4_4 -log warning
+IN REJECT -source +zzzblacklist4_5 -log warning
+IN REJECT -source +zzzblacklist6 -log warning"
+
+function patchRejectRules {
+	local FILE="$1"
+	# Remove any existing zzzblacklist REJECT lines
+	sed -i '/IN REJECT -source +zzzblacklist/d' "$FILE"
+	# Insert the full block after the [RULES] line
+	sed -i "/^\[RULES\]/a $( echo "$REJECT_BLOCK" | sed 's/$/\\n/' | tr -d '\n' )" "$FILE"
+}
+
+for P in $(/usr/bin/lxc-ls 2>/dev/null); do
+	DEST="$PVE_FW_DIR/$P.fw"
+	if [[ ! -f "$DEST" ]]; then
+		echo "  Copy initial firewall rules for CT $P" >> $LOG
+		cp "$FW_SRC/generic.fw" "$DEST"
+	else
+		echo "  Patching CT $P" >> $LOG
+		patchRejectRules "$DEST"
+	fi
 done
 
-echo "Setting up bind-mount of $FW_STORE over $PVE_FW_DIR..." >> $LOG
-
-# Write the systemd unit that bind-mounts our folder over /etc/pve/firewall after pmxcfs
-cat > $SYSTEMD_SERVICE << EOF
-[Unit]
-Description=Bind-mount $FW_STORE over $PVE_FW_DIR
-# pve-cluster mounts pmxcfs (/etc/pve); we must run after it so the mountpoint exists
-After=pve-cluster.service
-Requires=pve-cluster.service
-# pve-firewall must start after our mount is in place
-Before=pve-firewall.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/mount --bind $FW_STORE $PVE_FW_DIR
-ExecStop=/bin/umount $PVE_FW_DIR
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable pve-firewall-mount.service
-systemctl start pve-firewall-mount.service
-echo "pve-firewall-mount.service installed, enabled and started." >> $LOG
+for P in $(/usr/sbin/qm list 2>/dev/null | grep -v 'VMID' | tr -s ' ' | cut -d ' ' -f 2); do
+	DEST="$PVE_FW_DIR/$P.fw"
+	if [[ ! -f "$DEST" ]]; then
+		echo "  Copy initial firewall rules for VM $P" >> $LOG
+		cp "$FW_SRC/generic.fw" "$DEST"
+	else
+		echo "  Patching VM $P" >> $LOG
+		patchRejectRules "$DEST"
+	fi
+done
 
 echo -e "All rules have been created. \nNow press any key to continue restarting the firewall"
 echo -e "or press CTRL-C to do it yourself later.\n"
