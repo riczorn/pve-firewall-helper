@@ -29,6 +29,12 @@ Proxmox, including a script to update a massive blacklist of abuseipdb into the 
 
 ## Installation
 
+```
+git clone https://github.com/riczorn/pve-firewall-helper.git
+cd pve-firewall-helper
+
+```
+
 The install.sh makes a copy of your current configuration in /tmp/firewall-backup-date.tar.gz
 then proceeds to create a firewall configuration for the Datacenter, and a firewall configuration for each of the containers and virtual machines installed, based on the files cluster.fw and generic.fw included.
 
@@ -176,50 +182,62 @@ References
 ./update-ip-blacklist.sh
 ```
 
-Downloads the updated abuseipdb list(s), compresses them into CIDR ranges with `iprange`, then writes them directly into `cluster.fw` between the `BEGIN/END_AUTOBLACKLIST4` and `BEGIN/END_AUTOBLACKLIST6` markers. The rules are fully visible and manageable in the Proxmox web UI.
-
-### Syntax
-
-(update IPv4 rules only - quick)
-
-```bash
-./update-ip-blacklist.sh
-```
+Downloads `abuseipdb-s100-30d.ipv4` (~6MB), compresses it into CIDR ranges with `iprange`, then loads the result directly into a kernel `ipset` named `zzzblacklist4`. DROP rules are added to the `INPUT`, `FORWARD`, and `OUTPUT` chains via `iptables`. The blacklist never touches `cluster.fw` — PVE firewall manages only your custom rules, while the blacklist operates silently at kernel level.
 
 ### Command line options
 
 ```
-  --all          will update IPv4 AND IPv6 rules
-  --clusterfile=/etc/pve/firewall/cluster.fw
-                 location of the cluster.fw file
+  --no-input     do not block on the INPUT chain   (host traffic)
+  --no-forward   do not block on the FORWARD chain (VM/CT traffic)
+  --no-output    do not block on the OUTPUT chain  (outbound traffic)
+  --ipset-save=<path>
+                 location of the ipset save file
+                 (default: <install-dir>/tmp/blacklist-rules.save)
 ```
 
 ## How it works
 
-If only IPv4 rules are required, only `abuseipdb-s100-30d.ipv4` is downloaded (~6MB).
+`abuseipdb-s100-30d.ipv4` is downloaded and validated (truncation check), then piped through `iprange` to produce CIDR ranges. These are bulk-loaded into a temporary ipset, which is atomically swapped with the live `zzzblacklist4` set — so there is never a window where the live set is empty.
 
-If IPv6 rules are included (`--all`) the full zip from the repo is downloaded, then the individual days are sorted to extract the latest 30 days of IPv6 addresses. This takes longer as the repo is ~90MB.
+DROP rules in `INPUT`, `FORWARD`, and `OUTPUT` are added idempotently (checked before inserting). The populated ipset is saved to `<install-dir>/tmp/blacklist-rules.save` and restored at boot by `blacklist-rules.service`.
 
-`cluster.fw` is stored in `./pve-firewall/` (inside the install directory) which is bind-mounted over `/etc/pve/firewall/` by `pve-firewall-mount.service`. This sidesteps pmxcfs's 512KB per-file limit — the file lives on the regular filesystem while PVE reads it from its expected path. All rules remain visible and editable in the Proxmox web UI.
+In July 2024, the 30-days list had ~75,000 IPv4 addresses compressed to ~70,000 CIDR ranges. By 2026 it had grown to ~96,000 CIDR ranges.
 
-In July 2024, the 30-days list had 75,000 IPv4 addresses compressed to ~70,000 CIDR ranges, and ~170 IPv6 hosts. By 2026 the IPv4 list had grown to ~75,000 CIDR ranges (~6.7MB).
+## Verifying the rules are active
+
+Check that the DROP rules are present in all three chains:
+
+```bash
+for CHAIN in INPUT FORWARD OUTPUT; do
+  echo "=== $CHAIN ==="; iptables -L $CHAIN -n --line-numbers | grep zzzblacklist
+done
+```
+
+Expected output (one line per enabled chain):
+
+```
+=== INPUT ===
+1    DROP  all  --  0.0.0.0/0  0.0.0.0/0  match-set zzzblacklist4 src
+=== FORWARD ===
+1    DROP  all  --  0.0.0.0/0  0.0.0.0/0  match-set zzzblacklist4 src
+=== OUTPUT ===
+1    DROP  all  --  0.0.0.0/0  0.0.0.0/0  match-set zzzblacklist4 dst
+```
+
+Check how many entries are loaded in the ipset:
+
+```bash
+ipset list zzzblacklist4 | head -10
+```
 
 ## Scheduling
 
-Since the IPv6 addresses are very few, and quite irrelevant at the moment, you may schedule a weekly download of the full archive, and quick daily updates of just the IPv4 database.
-
-### With symbolic links
-
 ```bash
 ln -s /opt/pve-firewall-helper/update-ip-blacklist.sh /etc/cron.daily/update_ip_blacklist
-
 ```
 
-### Edit Crontab file
+Or via crontab (`nano /etc/crontab`):
 
-`nano /etc/crontab`
-
-```js
-20 4 * * 7	root	/opt/pve-firewall-helper/update-ip-blacklist.sh --all > /var/log/pve-firewall-helper_log
-40 4 * * *	root	/opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
+```
+40 4 * * *  root  /opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 ```
