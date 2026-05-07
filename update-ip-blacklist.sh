@@ -12,7 +12,8 @@
 # /opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 
 MODE=ipv4 # all | ipv4
-IPSET_SAVE=/etc/ipset-blacklist.save
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+IPSET_SAVE="$SCRIPT_DIR/tmp/blacklist-rules.save"
 RED="\033[38;5;198m"
 GREEN="\033[38;5;043m"
 BLACK="\033[48;5;232m"
@@ -25,8 +26,8 @@ function showHelp {
   echo -e "      will update IPv4 rules only (quick)\n"
 	echo -e "Command line options\n----------------------"
 	echo -e "  --all          will update IPv4 AND IPv6 rules"
-	echo -e "  --ipset-save=/etc/ipset-blacklist.save"
-	echo -e "                 location of the ipset save file"
+	echo -e "  --ipset-save=<path>"
+	echo -e "                 location of the ipset save file (default: <install-dir>/tmp/blacklist-rules.save)"
 }
 
 function showError {

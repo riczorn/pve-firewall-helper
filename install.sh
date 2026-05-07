@@ -99,13 +99,14 @@ done
 
 echo "Installing ipset-blacklist restore service..." >> $LOG
 
-IPSET_SAVE=/etc/ipset-blacklist.save
+IPSET_SAVE="$INSTALL_DIR/tmp/blacklist-rules.save"
 SYSTEMD_SERVICE=/etc/systemd/system/blacklist-rules.service
 
 # Create an empty save file if it doesn't exist yet (update-ip-blacklist.sh will populate it)
-touch $IPSET_SAVE
+mkdir -p "$INSTALL_DIR/tmp"
+touch "$IPSET_SAVE"
 
-cat > $SYSTEMD_SERVICE << 'EOF'
+cat > $SYSTEMD_SERVICE << EOF
 [Unit]
 Description=Restore ipset blacklists and iptables DROP rules (zzzblacklist4, zzzblacklist6)
 Before=pve-firewall.service network.target
@@ -116,10 +117,10 @@ DefaultDependencies=no
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/sbin/ipset restore -exist -file /etc/ipset-blacklist.save
+ExecStart=/sbin/ipset restore -exist -file $IPSET_SAVE
 ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C INPUT -m set --match-set zzzblacklist4 src -j DROP 2>/dev/null || iptables -I INPUT -m set --match-set zzzblacklist4 src -j DROP; } || true'
 ExecStart=/bin/sh -c 'ipset list zzzblacklist6 >/dev/null 2>&1 && { ip6tables -C INPUT -m set --match-set zzzblacklist6 src -j DROP 2>/dev/null || ip6tables -I INPUT -m set --match-set zzzblacklist6 src -j DROP; } || true'
-ExecStop=/sbin/ipset save -file /etc/ipset-blacklist.save
+ExecStop=/sbin/ipset save -file $IPSET_SAVE
 
 [Install]
 WantedBy=multi-user.target
