@@ -204,28 +204,31 @@ function replaceBlock {
 	tail -n $(( TOTAL - END_LINE + 1 )) "$FILE" >> "$OUT" || { showError "ERROR tail failed for $END_MARKER"; return 1; }
 }
 
+WORK1="cluster.fw.tmp"
+WORK2="cluster.fw.tmp2"
+
 function cleanupTmp {
-	rm -f "$CLUSTERFILE.tmp" "$CLUSTERFILE.tmp2"
+	rm -f "$WORK1" "$WORK2"
 }
 
-cp "$CLUSTERFILE.bak" "$CLUSTERFILE.tmp"
+cp "$CLUSTERFILE" "$WORK1"
 
-if ! replaceBlock "$CLUSTERFILE.tmp" "BEGIN_AUTOBLACKLIST4" "END_AUTOBLACKLIST4" "ipv4_block.txt" "$CLUSTERFILE.tmp2"; then
+if ! replaceBlock "$WORK1" "BEGIN_AUTOBLACKLIST4" "END_AUTOBLACKLIST4" "ipv4_block.txt" "$WORK2"; then
 	showError "ERROR failed to update IPv4 block. cluster.fw was not modified."
 	cleanupTmp
 	exit 1
 fi
-mv "$CLUSTERFILE.tmp2" "$CLUSTERFILE.tmp"
+mv "$WORK2" "$WORK1"
 
-if ! replaceBlock "$CLUSTERFILE.tmp" "BEGIN_AUTOBLACKLIST6" "END_AUTOBLACKLIST6" "ipv6_block.txt" "$CLUSTERFILE.tmp2"; then
+if ! replaceBlock "$WORK1" "BEGIN_AUTOBLACKLIST6" "END_AUTOBLACKLIST6" "ipv6_block.txt" "$WORK2"; then
 	showError "ERROR failed to update IPv6 block. cluster.fw was not modified."
 	cleanupTmp
 	exit 1
 fi
 
-# Both passes succeeded — atomically promote the result
-mv "$CLUSTERFILE.tmp2" "$CLUSTERFILE" || { showError "ERROR mv failed, cluster.fw was not modified."; cleanupTmp; exit 1; }
-rm -f "$CLUSTERFILE.tmp"
+# Both passes succeeded — copy result to cluster.fw (mv across filesystems not reliable)
+cp "$WORK2" "$CLUSTERFILE" || { showError "ERROR writing cluster.fw failed, original is intact."; cleanupTmp; exit 1; }
+cleanupTmp
 
 showInfo "File created: `ls -lah $CLUSTERFILE`"
 
