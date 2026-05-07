@@ -90,8 +90,13 @@ if [ "$SLOWDOWN" == "1" ]; then
   sed -i 's/updatetime = 10;/updatetime = 1200;/g' /usr/share/perl5/PVE/Service/pve_firewall.pm
 fi
 
-echo "Copying cluster.fw to $PVE_FW_DIR/" >> $LOG
-cp "$FW_SRC/cluster.fw" "$PVE_FW_DIR/"
+CLUSTER_DEST="$PVE_FW_DIR/cluster.fw"
+if [[ ! -f "$CLUSTER_DEST" ]]; then
+	echo "Copying cluster.fw to $PVE_FW_DIR/" >> $LOG
+	cp "$FW_SRC/cluster.fw" "$CLUSTER_DEST"
+else
+	echo "Skipping cluster.fw — $CLUSTER_DEST already exists" >> $LOG
+fi
 
 # Copy generic.fw for new CTs/VMs; patch existing ones with current REJECT rules
 for P in $(/usr/bin/lxc-ls 2>/dev/null); do
