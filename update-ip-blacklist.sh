@@ -130,14 +130,7 @@ fi
 
 GREEN="\033[38;5;190m"
 
-# Verify the ipset names exist in cluster.fw (they must be defined there for PVE rules to reference them)
-for IPSET in zzzblacklist4 zzzblacklist6; do
-	if ! grep -q "^\[IPSET $IPSET\]" $CLUSTERFILE; then
-		showError "ERROR $CLUSTERFILE is missing '[IPSET $IPSET]' section."
-		showError "Add an empty [IPSET $IPSET] section so PVE rules can reference it."
-		exit 1
-	fi
-done
+IPSET_SAVE=/etc/ipset-blacklist.save
 
 # Combine the IPv4 addresses into CIDR ranges
 iprange $FILEv4 > iprange.txt
@@ -162,42 +155,57 @@ if [[ -f "$FILEv6" ]]; then
 	fi
 fi
 
-# Load ipset entries via the Proxmox API (pvesh), bypassing the 512KB pmxcfs file limit.
-# cluster.fw defines the empty ipset sections so firewall rules can reference them;
-# the actual entries live only in the API/kernel, not in cluster.fw.
-
+# Load entries into a kernel ipset via bulk restore, then atomically swap with the live set.
+# Using a temp set avoids any window where the live set is empty during the update.
 function loadIpset {
 	local IPSET_NAME="$1"
-	local SOURCE_FILE="$2"
-	local COUNT=0
-	local ERRORS=0
+	local IPSET_TMP="${IPSET_NAME}_tmp"
+	local FAMILY="$2"       # inet or inet6
+	local SOURCE_FILE="$3"
 
-	showInfo "Clearing existing entries from ipset $IPSET_NAME..."
-	pvesh delete /cluster/firewall/ipset/$IPSET_NAME --force 2>/dev/null || true
-	pvesh create /cluster/firewall/ipset --name $IPSET_NAME 2>/dev/null || true
+	# Build ipset restore input for the temp set
+	{
+		echo "create $IPSET_TMP hash:net family $FAMILY hashsize 65536 maxelem 1048576"
+		while IFS= read -r ENTRY; do
+			[[ -z "$ENTRY" || "$ENTRY" == \#* ]] && continue
+			echo "add $IPSET_TMP $ENTRY"
+		done < "$SOURCE_FILE"
+	} | ipset restore -exist
 
-	showInfo "Loading $(wc -l < "$SOURCE_FILE") entries into ipset $IPSET_NAME..."
-	while IFS= read -r CIDR_ENTRY; do
-		[[ -z "$CIDR_ENTRY" || "$CIDR_ENTRY" == \#* ]] && continue
-		if ! pvesh create /cluster/firewall/ipset/$IPSET_NAME --cidr "$CIDR_ENTRY" 2>/dev/null; then
-			(( ERRORS++ ))
-		fi
-		(( COUNT++ ))
-		(( COUNT % 1000 == 0 )) && showInfo "  ... $COUNT entries loaded"
-	done < "$SOURCE_FILE"
+	# Ensure the live set exists before swapping
+	ipset create $IPSET_NAME hash:net family $FAMILY hashsize 65536 maxelem 1048576 -exist
 
-	if [[ "$ERRORS" -gt 0 ]]; then
-		showError "WARNING: $ERRORS entries failed to load into $IPSET_NAME"
-	fi
-	showInfo "ipset $IPSET_NAME: $COUNT entries loaded ($ERRORS errors)"
+	# Atomic swap: live set gets the new entries, tmp gets the old ones
+	ipset swap $IPSET_NAME $IPSET_TMP
+	ipset destroy $IPSET_TMP
 }
 
-loadIpset "zzzblacklist4" "iprange.txt"
-showInfo "$LINES IPv4 addresses compressed to $CIDR CIDR ranges — updated $(date '+%Y-%m-%d')"
+# Ensure DROP rules are in place (idempotent: -C checks before -I inserts)
+function ensureDropRule {
+	local CMD="$1"       # iptables or ip6tables
+	local IPSET_NAME="$2"
+	if ! $CMD -C INPUT -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null; then
+		$CMD -I INPUT -m set --match-set $IPSET_NAME src -j DROP
+	fi
+}
+
+showInfo "Loading $CIDR IPv4 CIDR ranges into kernel ipset zzzblacklist4..."
+loadIpset "zzzblacklist4" "inet" "iprange.txt"
+ensureDropRule iptables zzzblacklist4
+showInfo "$LINES IPv4 addresses compressed to $CIDR CIDR ranges loaded — $(date '+%Y-%m-%d')"
 
 if [[ -e "iprange6.txt" ]]; then
-	loadIpset "zzzblacklist6" "iprange6.txt"
-	showInfo "$MSGv6 loaded into zzzblacklist6"
+	showInfo "Loading IPv6 addresses into kernel ipset zzzblacklist6..."
+	loadIpset "zzzblacklist6" "inet6" "iprange6.txt"
+	ensureDropRule ip6tables zzzblacklist6
+	showInfo "$MSGv6 loaded — $(date '+%Y-%m-%d')"
+fi
+
+# Persist ipsets so they survive reboots
+showInfo "Saving ipsets to $IPSET_SAVE"
+ipset save zzzblacklist4 > $IPSET_SAVE
+if ipset list zzzblacklist6 &>/dev/null; then
+	ipset save zzzblacklist6 >> $IPSET_SAVE
 fi
 
 GREEN="\033[38;5;226m"

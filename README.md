@@ -34,9 +34,9 @@ then proceeds to create a firewall configuration for the Datacenter, and a firew
 
 It also invokes:
 ```bash
-apt install zip iprange
+apt install zip iprange ipset
 ```
-Replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
+Replace it with your favourite package manager but make sure you have all three installed. `iprange` compresses individual IPs into CIDR blocks; `ipset` manages the kernel-level hash sets used for fast blacklist matching.
 
 Clone the repo with your favourite method i.e.
 
@@ -74,15 +74,10 @@ The default cluster-level firewall, which also defines the three sets used in th
 
 - dc/admins, (this should be your ips)
 - dc/ovh,    (in case you use OVH's server monitoring)
-- zzzblacklist4  (a placeholder for the set of IPv4 addresses from abuseipdb)
-- zzzblacklist6  (a placeholder for the set of IPv6 addresses from abuseipdb)
+- dc/admins (your IPs)
+- dc/ovh    (OVH monitoring, if applicable)
 
-
-    The names start with zzz as Proxmox interface
-    is keen on sorting the IPSets, this way they
-    stay last before the [RULES].
-
-The sets are mostly empty, and the initial configuration is to allow all traffic.
+The blacklists (`zzzblacklist4`, `zzzblacklist6`) are **no longer stored in `cluster.fw`**. They are managed directly as kernel ipsets by `update-ip-blacklist.sh` and enforced via `iptables`/`ip6tables` DROP rules, bypassing the 512KB pmxcfs per-file size limit. The ipsets are persisted to `/etc/ipset-blacklist.save` and restored at boot by the `ipset-blacklist.service` systemd unit installed by `install.sh`.
 
 ### Enable the rules
 
@@ -166,8 +161,7 @@ References
 ./update-ip-blacklist.sh
 ```
 
-is the script that will download the updated abuseipdb list(s),
-and update the `/etc/pve/firewall/cluster.fw`'s `blocklist4-6` `IPSET`s.
+Downloads the updated abuseipdb list(s), compresses them into CIDR ranges with `iprange`, then bulk-loads them into kernel ipsets via `ipset restore`. A DROP rule is inserted into `iptables`/`ip6tables` for each set. The update is atomic: entries are loaded into a temporary set which is then swapped with the live set, so there is no window where the blacklist is empty.
 
 ### Syntax
 
@@ -184,11 +178,14 @@ and update the `/etc/pve/firewall/cluster.fw`'s `blocklist4-6` `IPSET`s.
 ```
 
 ## How it works
-If only IPv4 rules are required, only abuseipdb-s100-30d.ipv4, a 1MB download.
 
-If IPv6 rules are included (--all) then the full zip from the repo is downloaded, then the individual days sorted, in order to extract the latest 30 days's worth of IPv6 to block. This takes longer as currently the repo is 90MB and goes all the way back to 2022.
+If only IPv4 rules are required, only `abuseipdb-s100-30d.ipv4` is downloaded (~6MB).
 
-In July 2024, the 30-days list of IPv4 addresses was 75,000 addresses, which iprange grouped in 70,000 CIDR ranges, and only 170 IPv6 hosts
+If IPv6 rules are included (`--all`) the full zip from the repo is downloaded, then the individual days are sorted to extract the latest 30 days of IPv6 addresses. This takes longer as the repo is ~90MB.
+
+The blacklists are stored as kernel ipsets (not in `/etc/pve/firewall/`), which have no file size limit. After each update, the ipsets are saved to `/etc/ipset-blacklist.save` and restored at boot by `ipset-blacklist.service`.
+
+In July 2024, the 30-days list had 75,000 IPv4 addresses compressed to ~70,000 CIDR ranges, and ~170 IPv6 hosts. By 2026 the IPv4 list had grown to ~75,000 CIDR ranges (~6.7MB), which is why direct ipset management was adopted.
 
 ## Scheduling
 
