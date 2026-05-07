@@ -53,7 +53,7 @@ if [ "$ACTION" != "install" ]; then
   exit 0
 fi
 
-LOG=pve-firewall-helper_install_log
+LOG=/var/log/pve-firewall-helper_install_log
 
 touch $LOG
 tail -f $LOG  2> /dev/null &
@@ -89,14 +89,22 @@ cp cluster.fw "$FW_STORE/"
 
 for P in `/usr/bin/lxc-ls`
 do
-        echo -e "  Copy initial firewall rules for the CT $P" >> $LOG
-        cp generic.fw "$FW_STORE/$P.fw"
+        if [[ ! -f "$FW_STORE/$P.fw" ]]; then
+                echo -e "  Copy initial firewall rules for the CT $P" >> $LOG
+                cp generic.fw "$FW_STORE/$P.fw"
+        else
+                echo -e "  Skipping CT $P — $FW_STORE/$P.fw already exists" >> $LOG
+        fi
 done
 
 for P in `/usr/sbin/qm list | grep -v 'VMID' | tr -s ' ' | cut -d ' ' -f 2`
 do
-        echo -e "  Copy initial firewall rules for the VM $P" >> $LOG
-        cp generic.fw "$FW_STORE/$P.fw"
+        if [[ ! -f "$FW_STORE/$P.fw" ]]; then
+                echo -e "  Copy initial firewall rules for the VM $P" >> $LOG
+                cp generic.fw "$FW_STORE/$P.fw"
+        else
+                echo -e "  Skipping VM $P — $FW_STORE/$P.fw already exists" >> $LOG
+        fi
 done
 
 echo "Setting up bind-mount of $FW_STORE over $PVE_FW_DIR..." >> $LOG
