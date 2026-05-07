@@ -23,7 +23,7 @@ function showHelp {
   echo -e "${YELLOW}Syntax${RESET}"
   echo -e "  ${CYAN}./install.sh --install ${RESET}[options]\n"
   echo -e "${YELLOW}Options${RESET}"
-  echo -e "  ${CYAN}--slowdown${RESET}      make pve-firewall update every 1200s instead of 10"
+  echo -e "  ${CYAN}--slowdown${RESET}      make pve-firewall update every 1200s instead of its default 10s"
   echo -e "  ${CYAN}--no-input${RESET}      do not block on the INPUT chain   (host traffic)"
   echo -e "  ${CYAN}--no-forward${RESET}    do not block on the FORWARD chain (VM/CT traffic)"
   echo -e "  ${CYAN}--no-output${RESET}     do not block on the OUTPUT chain  (outbound traffic)\n"
@@ -43,7 +43,7 @@ for i in "$@"; do
       echo "Installing..."
       shift
       ;;
-    -s|--slow|--slowdown)
+    --slowdown)
       SLOWDOWN=1
       shift
       ;;
@@ -77,7 +77,7 @@ LOG=/var/log/pve-firewall-helper_install_log
 touch $LOG
 tail -f $LOG  2> /dev/null &
 
-apt -qq -y install zip unzip iprange ipset
+apt -qq -y install iprange ipset
 
 echo "Backup the initial configuration files of $PVE_FW_DIR" > $LOG
 

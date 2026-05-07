@@ -1,4 +1,5 @@
 # PVE Firewall helper
+
 ## Proxmox firewall configuration helper
 
 Generic Cluster and CT/VM Firewall Rules for Proxmox PVE Firewall
@@ -19,7 +20,6 @@ fasterweb.net
 [ShadowWhisperer]: https://github.com/ShadowWhisperer/IPs
 [duggytuxy]: https://github.com/duggytuxy/malicious_ip_addresses
 
-
 #### Please be careful. When you enable the firewall, you may block yourself out.
 
 ## Description
@@ -33,9 +33,11 @@ The install.sh makes a copy of your current configuration in /tmp/firewall-backu
 then proceeds to create a firewall configuration for the Datacenter, and a firewall configuration for each of the containers and virtual machines installed, based on the files cluster.fw and generic.fw included.
 
 It also invokes:
+
 ```bash
 apt install zip iprange
 ```
+
 Replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
 
 Clone the repo with your favourite method i.e.
@@ -43,6 +45,7 @@ Clone the repo with your favourite method i.e.
 ```
 [/opt]# git clone https://github.com/riczorn/pve-firewall-helper.git
 ```
+
 or just this once:
 
 ```bash
@@ -73,15 +76,15 @@ to make pve-firewall only update every 1200 seconds instead of 10.
 The default cluster-level firewall, which also defines the three sets used in the Virtual Machines (VM) and Containers (CT).
 
 - dc/admins, (this should be your ips)
-- dc/ovh,    (in case you use OVH's server monitoring)
+- dc/ovh, (in case you use OVH's server monitoring)
 - dc/admins (your IPs)
-- dc/ovh    (OVH monitoring, if applicable)
-- zzzblacklist4  (IPv4 addresses from abuseipdb, populated by `update-ip-blacklist.sh`)
-- zzzblacklist6  (IPv6 addresses from abuseipdb, populated by `update-ip-blacklist.sh`)
+- dc/ovh (OVH monitoring, if applicable)
+- zzzblacklist4 (IPv4 addresses from abuseipdb, populated by `update-ip-blacklist.sh`)
+- zzzblacklist6 (IPv6 addresses from abuseipdb, populated by `update-ip-blacklist.sh`)
 
-    The names start with zzz as Proxmox interface
-    is keen on sorting the IPSets, this way they
-    stay last before the [RULES].
+  The names start with zzz as Proxmox interface
+  is keen on sorting the IPSets, this way they
+  stay last before the [RULES].
 
 `cluster.fw` (and all firewall files) are stored in `./pve-firewall/` inside the install directory, which is bind-mounted over `/etc/pve/firewall/` at boot by `pve-firewall-mount.service`. This bypasses pmxcfs's 512KB per-file size limit while keeping all rules fully visible and editable in the Proxmox web UI.
 
@@ -136,11 +139,15 @@ iface vmbr1 inet static
 post-up   iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
 post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
 ```
+
 You can test the configuration with:
+
 ```bash
 ifup -a --no-act
 ```
+
 Then you can apply the changes:
+
 ```bash
 service networking restart
 ```
@@ -148,6 +155,7 @@ service networking restart
 Restart all your containers and VMs now, as restarting the network isolates their connection.
 
 View the new configuration:
+
 ```bash
 ip route show
 ...
@@ -155,6 +163,7 @@ ip route show
 ```
 
 References
+
 - [running with NAT on OVH][nat-ovh]
 - [NAT and Firewall][nat-fw]
 
@@ -171,12 +180,14 @@ Downloads the updated abuseipdb list(s), compresses them into CIDR ranges with `
 
 ### Syntax
 
-  (update IPv4 rules only - quick)
-  ```bash
-  ./update-ip-blacklist.sh
-  ```
+(update IPv4 rules only - quick)
+
+```bash
+./update-ip-blacklist.sh
+```
 
 ### Command line options
+
 ```
   --all          will update IPv4 AND IPv6 rules
   --clusterfile=/etc/pve/firewall/cluster.fw
@@ -198,6 +209,7 @@ In July 2024, the 30-days list had 75,000 IPv4 addresses compressed to ~70,000 C
 Since the IPv6 addresses are very few, and quite irrelevant at the moment, you may schedule a weekly download of the full archive, and quick daily updates of just the IPv4 database.
 
 ### With symbolic links
+
 ```bash
 ln -s /opt/pve-firewall-helper/update-ip-blacklist.sh /etc/cron.daily/update_ip_blacklist
 
