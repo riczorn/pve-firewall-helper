@@ -21,16 +21,20 @@ RESET="\033[0m"
 function showHelp {
   echo -e "${GREEN}Proxmox PVE Firewall Rules installer${RESET}\n"
   echo -e "${YELLOW}Syntax${RESET}"
-  echo -e "  ${CYAN}./install.sh --install${RESET}"
-  echo -e "      will copy firewall files to ${CYAN}$PVE_FW_DIR${RESET}\n"
-  echo -e "  ${CYAN}./install.sh --install --slowdown${RESET}"
-  echo -e "      will make Proxmox firewall rules update every 1200 seconds"
-  echo -e "      instead of 10\n"
+  echo -e "  ${CYAN}./install.sh --install ${RESET}[options]\n"
+  echo -e "${YELLOW}Options${RESET}"
+  echo -e "  ${CYAN}--slowdown${RESET}      make pve-firewall update every 1200s instead of 10"
+  echo -e "  ${CYAN}--no-input${RESET}      do not block on the INPUT chain   (host traffic)"
+  echo -e "  ${CYAN}--no-forward${RESET}    do not block on the FORWARD chain (VM/CT traffic)"
+  echo -e "  ${CYAN}--no-output${RESET}     do not block on the OUTPUT chain  (outbound traffic)\n"
   echo -e "${RED}This will overwrite your firewall configuration. A backup is made.${RESET}\n"
 }
 
 ACTION=0
 SLOWDOWN=0
+BLOCK_INPUT=1
+BLOCK_FORWARD=1
+BLOCK_OUTPUT=1
 
 for i in "$@"; do
   case $i in
@@ -43,6 +47,12 @@ for i in "$@"; do
       SLOWDOWN=1
       shift
       ;;
+    --no-input)
+      BLOCK_INPUT=0; shift ;;
+    --no-forward)
+      BLOCK_FORWARD=0; shift ;;
+    --no-output)
+      BLOCK_OUTPUT=0; shift ;;
     -h|--help)
 			showHelp
 			exit 0
@@ -113,11 +123,22 @@ SYSTEMD_SERVICE=/etc/systemd/system/blacklist-rules.service
 mkdir -p "$INSTALL_DIR/tmp"
 touch "$IPSET_SAVE"
 
+# Build the chain restore lines based on selected options
+CHAIN_EXECS=""
+if [[ $BLOCK_INPUT == 1 ]]; then
+	CHAIN_EXECS+="ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C INPUT -m set --match-set zzzblacklist4 src -j DROP 2>/dev/null || iptables -I INPUT -m set --match-set zzzblacklist4 src -j DROP; } || true'\n"
+fi
+if [[ $BLOCK_FORWARD == 1 ]]; then
+	CHAIN_EXECS+="ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C FORWARD -m set --match-set zzzblacklist4 src -j DROP 2>/dev/null || iptables -I FORWARD -m set --match-set zzzblacklist4 src -j DROP; } || true'\n"
+fi
+if [[ $BLOCK_OUTPUT == 1 ]]; then
+	CHAIN_EXECS+="ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C OUTPUT -m set --match-set zzzblacklist4 dst -j DROP 2>/dev/null || iptables -I OUTPUT -m set --match-set zzzblacklist4 dst -j DROP; } || true'\n"
+fi
+
 cat > $SYSTEMD_SERVICE << EOF
 [Unit]
-Description=Restore ipset blacklists and iptables DROP rules (zzzblacklist4, zzzblacklist6)
+Description=Restore ipset blacklists and iptables DROP rules (zzzblacklist4)
 Before=pve-firewall.service network.target
-# Re-run after iptables/netfilter is restarted so DROP rules are always restored
 After=netfilter-persistent.service iptables.service
 DefaultDependencies=no
 
@@ -125,8 +146,7 @@ DefaultDependencies=no
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/sbin/ipset restore -exist -file $IPSET_SAVE
-ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C INPUT -m set --match-set zzzblacklist4 src -j DROP 2>/dev/null || iptables -I INPUT -m set --match-set zzzblacklist4 src -j DROP; } || true'
-ExecStart=/bin/sh -c 'ipset list zzzblacklist6 >/dev/null 2>&1 && { ip6tables -C INPUT -m set --match-set zzzblacklist6 src -j DROP 2>/dev/null || ip6tables -I INPUT -m set --match-set zzzblacklist6 src -j DROP; } || true'
+$(echo -e "$CHAIN_EXECS")
 ExecStop=/sbin/ipset save -file $IPSET_SAVE
 
 [Install]
