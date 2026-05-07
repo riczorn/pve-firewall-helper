@@ -13,7 +13,9 @@
 # /opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 
 MODE=ipv4 # all | ipv4
-CLUSTERFILE='/etc/pve/firewall/cluster.fw'
+FW_DIR='/etc/pve/firewall'
+MAX_CHUNKS=5
+CHUNK_SIZE=50000
 RED="\033[38;5;198m"
 GREEN="\033[38;5;043m"
 BLACK="\033[48;5;232m"
@@ -21,14 +23,13 @@ RESET="\033[0m"
 
 
 function showHelp {
-  echo -e "Proxmox PVE Firewall Rules updated\n"
+  echo -e "Proxmox PVE Firewall Rules updater\n"
   echo -e "Syntax\n  ./update-ip-blacklist.sh "
   echo -e "      will update IPv4 rules only (quick)\n"
 	echo -e "Command line options\n----------------------"
-#  echo -e "  --ipv4         will update IPv4 rules"
 	echo -e "  --all          will update IPv4 AND IPv6 rules"
-	echo -e "  --clusterfile=/etc/pve/firewall/cluster.fw"
-	echo -e "                 location of the cluster.fw file"
+	echo -e "  --fwdir=/etc/pve/firewall"
+	echo -e "                 location of the firewall directory"
 }
 
 function showError {
@@ -45,15 +46,15 @@ function parseOptions {
 	  case $i in
 	    -ipv4|-v4|--ipv4|--v4|--IPv4|-IPv4|--IPV4|-IPV4)
 	      export MODE=ipv4
-	      shift # past argument with no value
+	      shift
 	      ;;
 		-a|--all)
 	      export MODE=all
-	      shift # past argument with no value
+	      shift
 	      ;;
-		-c=*|--clusterfile=*)
-	      export CLUSTERFILE="${i#*=}"
-	      shift # past argument=value
+		-d=*|--fwdir=*)
+	      export FW_DIR="${i#*=}"
+	      shift
 	      ;;
 		-h|--help)
 				showHelp
@@ -71,20 +72,49 @@ function parseOptions {
 }
 
 function buildIPv6 {
-	cd "$1/db"
-	# ls | sort -h | tail -n 30 | xargs -i  /usr/bin/ls "{}/{}.ipv6"
-	# grab the last 30 days of ipv6 addresses. Add together, sort and uniq:
+	local DIR="$1"
+	if [[ ! -d "$DIR/db" ]]; then
+		showError "ERROR buildIPv6: directory $DIR/db not found"
+		return 1
+	fi
+	cd "$DIR/db"
 	SOURCE=abuseipdb-s100-30d.ipv6
-	ls | sort -h | tail -n 30 | xargs -i  /usr/bin/cat "{}/{}.ipv6" > $SOURCE
-	# now I'm the db folder; sort and uniq to the destination folder:
+	ls | sort -h | tail -n 30 | xargs -i /usr/bin/cat "{}/{}.ipv6" > "$SOURCE"
 	DESTINATION="../abuseipdb-s100-30d.ipv6"
-	cat "$SOURCE" | sort | uniq > "$DESTINATION"
+	sort < "$SOURCE" | uniq > "$DESTINATION"
 	cd ../..
 }
 
-# echo -e "MODE: $MODE; Cluster file: $CLUSTERFILE"
+# Write one blacklist_N.fw file with the given IPSET name and content file
+function writeChunkFw {
+	local DEST="$1"
+	local IPSET_NAME="$2"
+	local CONTENT_FILE="$3"
+	local WORK="${DEST}.tmp"
+	{
+		echo "[IPSET $IPSET_NAME]"
+		echo ""
+		cat "$CONTENT_FILE"
+		echo ""
+	} > "$WORK" || { showError "ERROR writing $WORK"; return 1; }
+	cp "$WORK" "$DEST" || { showError "ERROR copying to $DEST"; rm -f "$WORK"; return 1; }
+	rm -f "$WORK"
+}
+
 parseOptions $@ || exit 1
 showInfo "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
+
+# Check required tools before doing anything
+for TOOL in wget iprange split; do
+	if ! command -v $TOOL &>/dev/null; then
+		showError "ERROR required tool '$TOOL' not found. Run: apt install $TOOL"
+		exit 1
+	fi
+done
+if [[ "$MODE" == "all" ]] && ! command -v unzip &>/dev/null; then
+	showError "ERROR 'unzip' not found (required for --all mode). Run: apt install unzip"
+	exit 1
+fi
 
 rm -rf tmp/blocklist-abuseipdb-main 2> /dev/null
 rm -f  tmp/abuseipdb* 2> /dev/null
@@ -97,26 +127,34 @@ FILEv4=""
 FILEv6=""
 if [ "$MODE" == "ipv4" ]; then
 	wget -q --show-progress https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4
-	RETURN_VALUE=$?
-
+	if [[ $? -ne 0 ]]; then
+		showError "Error downloading IPv4 list"
+		exit 1
+	fi
 	FILEv4=abuseipdb-s100-30d.ipv4
 else
 	wget -q --show-progress https://github.com/borestad/blocklist-ip/archive/refs/heads/main.zip
+	if [[ $? -ne 0 ]]; then
+		showError "Error downloading main.zip"
+		exit 1
+	fi
 	unzip -q main.zip
-	RETURN_VALUE=$?
+	if [[ $? -ne 0 ]]; then
+		showError "Error extracting main.zip"
+		rm -f main.zip
+		exit 1
+	fi
 	rm main.zip
 	FILEv4=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv4
-	buildIPv6 blocklist-abuseipdb-main/
+	if ! buildIPv6 blocklist-abuseipdb-main/; then
+		showError "ERROR building IPv6 list. Aborting."
+		exit 1
+	fi
 	echo " IPv6 malicious hosts file created "
 	FILEv6=blocklist-abuseipdb-main/abuseipdb-s100-30d.ipv6
 fi
 
-if [[ $RETURN_VALUE -ne 0 ]]; then
-	showError "Error downloading to file `pwd`/$FILEv4"
-	exit
-fi
-
-echo "File `pwd`/$FILEv4 downloaded"
+echo "File $(pwd)/$FILEv4 downloaded"
 
 # Validate the last line of the downloaded IPv4 file is a complete IP address.
 # A truncated download (e.g. ending in "192.") would cause iprange to emit a
@@ -130,83 +168,66 @@ fi
 
 GREEN="\033[38;5;190m"
 
-IPSET_SAVE=/etc/ipset-blacklist.save
-
 # Combine the IPv4 addresses into CIDR ranges
 iprange $FILEv4 > iprange.txt
 
 # Ensure we downloaded enough entries
-IPRANGELINES=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
+IPRANGELINES=$(wc -l < iprange.txt)
 if [ "$IPRANGELINES" -lt "500" ]; then
 	showError "ERROR IPv4 range only contains $IPRANGELINES lines"
 	exit 1
 fi
 
-CIDR=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
-LINES=`wc -l $FILEv4 | tr -s ' ' | cut -f 1 -d ' '`
+CIDR=$(wc -l < iprange.txt)
+LINES=$(grep -c '^[0-9]' "$FILEv4")
 
-MSGv6=""
-if [[ -f "$FILEv6" ]]; then
-	LINESv6=`wc -l $FILEv6 | tr -s ' ' | cut -f 1 -d ' '`
-	if [[ "$LINESv6" -gt 5 ]]; then
-		cat $FILEv6 > iprange6.txt
-		LINESip6=`wc -l iprange6.txt | tr -s ' ' | cut -f 1 -d ' '`
-		MSGv6="plus $LINESip6 IPv6 addresses"
+# Split iprange.txt into chunks of CHUNK_SIZE lines
+rm -f chunk_*.txt
+split -l $CHUNK_SIZE iprange.txt chunk_
+CHUNKS=( chunk_* )
+if [[ ${#CHUNKS[@]} -gt $MAX_CHUNKS ]]; then
+	showError "ERROR IPv4 list split into ${#CHUNKS[@]} chunks, exceeding MAX_CHUNKS=$MAX_CHUNKS"
+	showError "Increase MAX_CHUNKS or CHUNK_SIZE in the script."
+	exit 1
+fi
+
+# Write blacklist_N.fw for each chunk; clear any unused slots
+for N in $(seq 1 $MAX_CHUNKS); do
+	DEST="$FW_DIR/blacklist_$N.fw"
+	IDX=$(( N - 1 ))
+	if [[ $IDX -lt ${#CHUNKS[@]} ]]; then
+		CHUNKFILE="${CHUNKS[$IDX]}"
+		CHUNKLINES=$(wc -l < "$CHUNKFILE")
+		showInfo "Writing blacklist_$N.fw ($CHUNKLINES CIDR ranges)..."
+		writeChunkFw "$DEST" "zzzblacklist4_$N" "$CHUNKFILE" || exit 1
+	else
+		# Write an empty IPSET so PVE doesn't error on a missing referenced set
+		printf "[IPSET zzzblacklist4_$N]\n\n" > "$DEST"
 	fi
-fi
+done
 
-# Load entries into a kernel ipset via bulk restore, then atomically swap with the live set.
-# Using a temp set avoids any window where the live set is empty during the update.
-function loadIpset {
-	local IPSET_NAME="$1"
-	local IPSET_TMP="${IPSET_NAME}_tmp"
-	local FAMILY="$2"       # inet or inet6
-	local SOURCE_FILE="$3"
+NCHUNKS=${#CHUNKS[@]}
+showInfo "$LINES IPv4 addresses → $CIDR CIDR ranges → $NCHUNKS file(s) — $(date '+%Y-%m-%d')"
 
-	# Build ipset restore input for the temp set
-	{
-		echo "create $IPSET_TMP hash:net family $FAMILY hashsize 65536 maxelem 1048576"
-		while IFS= read -r ENTRY; do
-			[[ -z "$ENTRY" || "$ENTRY" == \#* ]] && continue
-			echo "add $IPSET_TMP $ENTRY"
-		done < "$SOURCE_FILE"
-	} | ipset restore -exist
-
-	# Ensure the live set exists before swapping
-	ipset create $IPSET_NAME hash:net family $FAMILY hashsize 65536 maxelem 1048576 -exist
-
-	# Atomic swap: live set gets the new entries, tmp gets the old ones
-	ipset swap $IPSET_NAME $IPSET_TMP
-	ipset destroy $IPSET_TMP
-}
-
-# Ensure DROP rules are in place (idempotent: -C checks before -I inserts)
-function ensureDropRule {
-	local CMD="$1"       # iptables or ip6tables
-	local IPSET_NAME="$2"
-	if ! $CMD -C INPUT -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null; then
-		$CMD -I INPUT -m set --match-set $IPSET_NAME src -j DROP
+# Write blacklist_ipv6.fw
+DEST_V6="$FW_DIR/blacklist_ipv6.fw"
+WORK_V6="blacklist_ipv6.fw.tmp"
+{
+	echo "[IPSET zzzblacklist6]"
+	echo ""
+	if [[ -f "$FILEv6" ]]; then
+		LINESv6=$(wc -l < "$FILEv6")
+		if [[ "$LINESv6" -gt 5 ]]; then
+			cat "$FILEv6" > iprange6.txt
+			LINESip6=$(wc -l < iprange6.txt)
+			cat iprange6.txt
+			showInfo "$LINESip6 IPv6 addresses written to blacklist_ipv6.fw"
+		fi
 	fi
-}
-
-showInfo "Loading $CIDR IPv4 CIDR ranges into kernel ipset zzzblacklist4..."
-loadIpset "zzzblacklist4" "inet" "iprange.txt"
-ensureDropRule iptables zzzblacklist4
-showInfo "$LINES IPv4 addresses compressed to $CIDR CIDR ranges loaded — $(date '+%Y-%m-%d')"
-
-if [[ -e "iprange6.txt" ]]; then
-	showInfo "Loading IPv6 addresses into kernel ipset zzzblacklist6..."
-	loadIpset "zzzblacklist6" "inet6" "iprange6.txt"
-	ensureDropRule ip6tables zzzblacklist6
-	showInfo "$MSGv6 loaded — $(date '+%Y-%m-%d')"
-fi
-
-# Persist ipsets so they survive reboots
-showInfo "Saving ipsets to $IPSET_SAVE"
-ipset save zzzblacklist4 > $IPSET_SAVE
-if ipset list zzzblacklist6 &>/dev/null; then
-	ipset save zzzblacklist6 >> $IPSET_SAVE
-fi
+	echo ""
+} > "$WORK_V6" || { showError "ERROR building $WORK_V6"; exit 1; }
+cp "$WORK_V6" "$DEST_V6" || { showError "ERROR writing $DEST_V6"; rm -f "$WORK_V6"; exit 1; }
+rm -f "$WORK_V6"
 
 GREEN="\033[38;5;226m"
 showInfo "Reloading PVE Firewall rules"

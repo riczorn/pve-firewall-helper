@@ -9,11 +9,13 @@
 # https://github.com/riczorn/pve-firewall-helper
 
 PVE_FW_DIR=/etc/pve/firewall
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+FW_SRC="$INSTALL_DIR/pve"
 
 function showHelp {
   echo -e "Proxmox PVE Firewall Rules installer\n"
   echo -e "Syntax\n  ./install.sh --install "
-  echo -e "      will copy firewall .cw files to $PVE_FW_DIR\n"
+  echo -e "      will copy firewall files to $PVE_FW_DIR\n"
   echo -e "  ./install.sh --install --slowdown"
   echo -e "      will make Proxmox firewall rules update every 1200 seconds "
   echo -e "      instead of 10\n"
@@ -28,14 +30,14 @@ for i in "$@"; do
     -i|--install)
       ACTION=install
       echo "Installing..."
-      shift # past argument with no value
+      shift
       ;;
     -s|--slow|--slowdown)
       SLOWDOWN=1
-      shift # past argument with no value
+      shift
       ;;
     -h|--help)
-			showhelp
+			showHelp
 			exit 0
       ;;
     -*|--*)
@@ -53,71 +55,70 @@ if [ "$ACTION" != "install" ]; then
   exit 0
 fi
 
-LOG=pve-firewall-helper_install_log
+LOG=/var/log/pve-firewall-helper_install_log
 
 touch $LOG
 tail -f $LOG  2> /dev/null &
 
-apt -qq -y install zip iprange ipset
+apt -qq -y install zip unzip iprange
 
 echo "Backup the initial configuration files of $PVE_FW_DIR" > $LOG
 
 BACKUPFILE="/tmp/firewall-backup-$(date +%y-%m-%d).tar.gz"
 echo "  to $BACKUPFILE" >> $LOG
-
-tar czf $BACKUPFILE $PVE_FW_DIR/*.fw
+tar czf $BACKUPFILE $PVE_FW_DIR/*.fw 2>/dev/null || true
 
 if [ "$SLOWDOWN" == "1" ]; then
-  echo "Installing"
   # Force updating the firewall rules every 1200 seconds instead of 10:
   sed -i 's/updatetime = 10;/updatetime = 1200;/g' /usr/share/perl5/PVE/Service/pve_firewall.pm
 fi
 
-
-echo "Copy initial cluster rules to $PVE_FW_DIR/" >> $LOG
-cp cluster.fw $PVE_FW_DIR/
-
-for P in `/usr/bin/lxc-ls`
-do
-        echo -e "  Copy intial firewall rules for the CT $P" >> $LOG
-        cp generic.fw $PVE_FW_DIR/$P.fw
+# Copy cluster.fw and all blacklist templates
+echo "Copying cluster.fw and blacklist templates to $PVE_FW_DIR/" >> $LOG
+cp "$FW_SRC/cluster.fw" "$PVE_FW_DIR/"
+for BL in "$FW_SRC"/blacklist_*.fw; do
+	cp "$BL" "$PVE_FW_DIR/"
+	echo "  copied $(basename $BL)" >> $LOG
 done
 
-for P in `/usr/sbin/qm list | grep -v 'VMID' | tr -s ' ' | cut -d ' ' -f 2`
-do
-        echo -e "  Copy intial firewall rules for the VM $P" >> $LOG
-        cp generic.fw $PVE_FW_DIR/$P.fw
+# Copy generic.fw for CTs and VMs that don't have a config yet;
+# patch IN REJECT blacklist rules into all existing *.fw files.
+REJECT_BLOCK="IN REJECT -source +zzzblacklist4_1 -log warning
+IN REJECT -source +zzzblacklist4_2 -log warning
+IN REJECT -source +zzzblacklist4_3 -log warning
+IN REJECT -source +zzzblacklist4_4 -log warning
+IN REJECT -source +zzzblacklist4_5 -log warning
+IN REJECT -source +zzzblacklist6 -log warning"
+
+function patchRejectRules {
+	local FILE="$1"
+	# Remove any existing zzzblacklist REJECT lines
+	sed -i '/IN REJECT -source +zzzblacklist/d' "$FILE"
+	# Insert the full block after the [RULES] line
+	sed -i "/^\[RULES\]/a $( echo "$REJECT_BLOCK" | sed 's/$/\\n/' | tr -d '\n' )" "$FILE"
+}
+
+for P in $(/usr/bin/lxc-ls 2>/dev/null); do
+	DEST="$PVE_FW_DIR/$P.fw"
+	if [[ ! -f "$DEST" ]]; then
+		echo "  Copy initial firewall rules for CT $P" >> $LOG
+		cp "$FW_SRC/generic.fw" "$DEST"
+	else
+		echo "  Patching CT $P" >> $LOG
+		patchRejectRules "$DEST"
+	fi
 done
 
-echo "Installing ipset-blacklist restore service..." >> $LOG
-
-IPSET_SAVE=/etc/ipset-blacklist.save
-SYSTEMD_SERVICE=/etc/systemd/system/ipset-blacklist.service
-
-# Create an empty save file if it doesn't exist yet (update-ip-blacklist.sh will populate it)
-touch $IPSET_SAVE
-
-cat > $SYSTEMD_SERVICE << 'EOF'
-[Unit]
-Description=Restore ipset blacklists (zzzblacklist4, zzzblacklist6)
-Before=pve-firewall.service network.target
-DefaultDependencies=no
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/sbin/ipset restore -exist -file /etc/ipset-blacklist.save
-ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C INPUT -m set --match-set zzzblacklist4 src -j DROP 2>/dev/null || iptables -I INPUT -m set --match-set zzzblacklist4 src -j DROP; } || true'
-ExecStart=/bin/sh -c 'ipset list zzzblacklist6 >/dev/null 2>&1 && { ip6tables -C INPUT -m set --match-set zzzblacklist6 src -j DROP 2>/dev/null || ip6tables -I INPUT -m set --match-set zzzblacklist6 src -j DROP; } || true'
-ExecStop=/sbin/ipset save -file /etc/ipset-blacklist.save
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable ipset-blacklist.service
-echo "ipset-blacklist.service installed and enabled." >> $LOG
+for P in $(/usr/sbin/qm list 2>/dev/null | grep -v 'VMID' | tr -s ' ' | cut -d ' ' -f 2); do
+	DEST="$PVE_FW_DIR/$P.fw"
+	if [[ ! -f "$DEST" ]]; then
+		echo "  Copy initial firewall rules for VM $P" >> $LOG
+		cp "$FW_SRC/generic.fw" "$DEST"
+	else
+		echo "  Patching VM $P" >> $LOG
+		patchRejectRules "$DEST"
+	fi
+done
 
 echo -e "All rules have been created. \nNow press any key to continue restarting the firewall"
 echo -e "or press CTRL-C to do it yourself later.\n"
@@ -134,4 +135,4 @@ echo "Restarting the fw" >> $LOG
 pve-firewall restart >> $LOG
 
 echo -e "------\nDone\n" >> $LOG
-echo -e "------\nNow run update-ip-blacklist.sh to populate the blacklists, then check the rules and enable the firewall as explained in README.md\n\n" >> $LOG
+echo -e "------\nNow check the rules and enable the firewall as explained in README.md\n\n" >> $LOG
