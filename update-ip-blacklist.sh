@@ -8,14 +8,11 @@
 #
 # https://github.com/riczorn/pve-firewall-helper
 #
-# when scheduling,
-	# redirect output to /var/log/pve-firewall-helper_log i.e.
+# when scheduling, redirect output to /var/log/pve-firewall-helper_log i.e.
 # /opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 
 MODE=ipv4 # all | ipv4
-FW_DIR='/etc/pve/firewall'
-MAX_CHUNKS=5
-CHUNK_SIZE=50000
+IPSET_SAVE=/etc/ipset-blacklist.save
 RED="\033[38;5;198m"
 GREEN="\033[38;5;043m"
 BLACK="\033[48;5;232m"
@@ -24,12 +21,12 @@ RESET="\033[0m"
 
 function showHelp {
   echo -e "Proxmox PVE Firewall Rules updater\n"
-  echo -e "Syntax\n  ./update-ip-blacklist.sh "
+  echo -e "Syntax\n  ./update-ip-blacklist.sh"
   echo -e "      will update IPv4 rules only (quick)\n"
 	echo -e "Command line options\n----------------------"
 	echo -e "  --all          will update IPv4 AND IPv6 rules"
-	echo -e "  --fwdir=/etc/pve/firewall"
-	echo -e "                 location of the firewall directory"
+	echo -e "  --ipset-save=/etc/ipset-blacklist.save"
+	echo -e "                 location of the ipset save file"
 }
 
 function showError {
@@ -39,7 +36,6 @@ function showError {
 function showInfo {
 	echo -e "$GREEN$@$RESET"
 }
-
 
 function parseOptions {
 	for i in "$@"; do
@@ -52,8 +48,8 @@ function parseOptions {
 	      export MODE=all
 	      shift
 	      ;;
-		-d=*|--fwdir=*)
-	      export FW_DIR="${i#*=}"
+		-s=*|--ipset-save=*)
+	      export IPSET_SAVE="${i#*=}"
 	      shift
 	      ;;
 		-h|--help)
@@ -85,27 +81,45 @@ function buildIPv6 {
 	cd ../..
 }
 
-# Write one blacklist_N.fw file with the given IPSET name and content file
-function writeChunkFw {
-	local DEST="$1"
-	local IPSET_NAME="$2"
-	local CONTENT_FILE="$3"
-	local WORK="${DEST}.tmp"
+# Load entries into a kernel ipset via bulk restore, then atomically swap with the live set.
+# Using a temp set avoids any window where the live set is empty during the update.
+function loadIpset {
+	local IPSET_NAME="$1"
+	local IPSET_TMP="${IPSET_NAME}_tmp"
+	local FAMILY="$2"       # inet or inet6
+	local SOURCE_FILE="$3"
+
+	# Build ipset restore input for the temp set
 	{
-		echo "[IPSET $IPSET_NAME]"
-		echo ""
-		cat "$CONTENT_FILE"
-		echo ""
-	} > "$WORK" || { showError "ERROR writing $WORK"; return 1; }
-	cp "$WORK" "$DEST" || { showError "ERROR copying to $DEST"; rm -f "$WORK"; return 1; }
-	rm -f "$WORK"
+		echo "create $IPSET_TMP hash:net family $FAMILY hashsize 65536 maxelem 1048576"
+		while IFS= read -r ENTRY; do
+			[[ -z "$ENTRY" || "$ENTRY" == \#* ]] && continue
+			echo "add $IPSET_TMP $ENTRY"
+		done < "$SOURCE_FILE"
+	} | ipset restore -exist
+
+	# Ensure the live set exists before swapping
+	ipset create $IPSET_NAME hash:net family $FAMILY hashsize 65536 maxelem 1048576 -exist
+
+	# Atomic swap: live set gets the new entries, tmp gets the old ones
+	ipset swap $IPSET_NAME $IPSET_TMP
+	ipset destroy $IPSET_TMP
+}
+
+# Ensure DROP rules are in place (idempotent: -C checks before -I inserts)
+function ensureDropRule {
+	local CMD="$1"       # iptables or ip6tables
+	local IPSET_NAME="$2"
+	if ! $CMD -C INPUT -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null; then
+		$CMD -I INPUT -m set --match-set $IPSET_NAME src -j DROP
+	fi
 }
 
 parseOptions $@ || exit 1
 showInfo "------\n`date`\nUpdating from abuseipdb\n  \n# `pwd`/$0\n-----"
 
 # Check required tools before doing anything
-for TOOL in wget iprange split; do
+for TOOL in wget iprange ipset iptables ip6tables; do
 	if ! command -v $TOOL &>/dev/null; then
 		showError "ERROR required tool '$TOOL' not found. Run: apt install $TOOL"
 		exit 1
@@ -181,53 +195,34 @@ fi
 CIDR=$(wc -l < iprange.txt)
 LINES=$(grep -c '^[0-9]' "$FILEv4")
 
-# Split iprange.txt into chunks of CHUNK_SIZE lines
-rm -f chunk_*.txt
-split -l $CHUNK_SIZE iprange.txt chunk_
-CHUNKS=( chunk_* )
-if [[ ${#CHUNKS[@]} -gt $MAX_CHUNKS ]]; then
-	showError "ERROR IPv4 list split into ${#CHUNKS[@]} chunks, exceeding MAX_CHUNKS=$MAX_CHUNKS"
-	showError "Increase MAX_CHUNKS or CHUNK_SIZE in the script."
-	exit 1
+MSGv6=""
+if [[ -f "$FILEv6" ]]; then
+	LINESv6=$(wc -l < "$FILEv6")
+	if [[ "$LINESv6" -gt 5 ]]; then
+		cat "$FILEv6" > iprange6.txt
+		LINESip6=$(wc -l < iprange6.txt)
+		MSGv6="plus $LINESip6 IPv6 addresses"
+	fi
 fi
 
-# Write blacklist_N.fw for each chunk; clear any unused slots
-for N in $(seq 1 $MAX_CHUNKS); do
-	DEST="$FW_DIR/blacklist_$N.fw"
-	IDX=$(( N - 1 ))
-	if [[ $IDX -lt ${#CHUNKS[@]} ]]; then
-		CHUNKFILE="${CHUNKS[$IDX]}"
-		CHUNKLINES=$(wc -l < "$CHUNKFILE")
-		showInfo "Writing blacklist_$N.fw ($CHUNKLINES CIDR ranges)..."
-		writeChunkFw "$DEST" "zzzblacklist4_$N" "$CHUNKFILE" || exit 1
-	else
-		# Write an empty IPSET so PVE doesn't error on a missing referenced set
-		printf "[IPSET zzzblacklist4_$N]\n\n" > "$DEST"
-	fi
-done
+showInfo "Loading $CIDR IPv4 CIDR ranges into kernel ipset zzzblacklist4..."
+loadIpset "zzzblacklist4" "inet" "iprange.txt"
+ensureDropRule iptables zzzblacklist4
+showInfo "$LINES IPv4 addresses compressed to $CIDR CIDR ranges loaded — $(date '+%Y-%m-%d')"
 
-NCHUNKS=${#CHUNKS[@]}
-showInfo "$LINES IPv4 addresses → $CIDR CIDR ranges → $NCHUNKS file(s) — $(date '+%Y-%m-%d')"
+if [[ -e "iprange6.txt" ]]; then
+	showInfo "Loading IPv6 addresses into kernel ipset zzzblacklist6..."
+	loadIpset "zzzblacklist6" "inet6" "iprange6.txt"
+	ensureDropRule ip6tables zzzblacklist6
+	showInfo "$MSGv6 loaded — $(date '+%Y-%m-%d')"
+fi
 
-# Write blacklist_ipv6.fw
-DEST_V6="$FW_DIR/blacklist_ipv6.fw"
-WORK_V6="blacklist_ipv6.fw.tmp"
-{
-	echo "[IPSET zzzblacklist6]"
-	echo ""
-	if [[ -f "$FILEv6" ]]; then
-		LINESv6=$(wc -l < "$FILEv6")
-		if [[ "$LINESv6" -gt 5 ]]; then
-			cat "$FILEv6" > iprange6.txt
-			LINESip6=$(wc -l < iprange6.txt)
-			cat iprange6.txt
-			showInfo "$LINESip6 IPv6 addresses written to blacklist_ipv6.fw"
-		fi
-	fi
-	echo ""
-} > "$WORK_V6" || { showError "ERROR building $WORK_V6"; exit 1; }
-cp "$WORK_V6" "$DEST_V6" || { showError "ERROR writing $DEST_V6"; rm -f "$WORK_V6"; exit 1; }
-rm -f "$WORK_V6"
+# Persist ipsets so they survive reboots
+showInfo "Saving ipsets to $IPSET_SAVE"
+ipset save zzzblacklist4 > $IPSET_SAVE
+if ipset list zzzblacklist6 &>/dev/null; then
+	ipset save zzzblacklist6 >> $IPSET_SAVE
+fi
 
 GREEN="\033[38;5;226m"
 showInfo "Reloading PVE Firewall rules"
