@@ -129,20 +129,17 @@ if ! echo "$LASTLINE" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}'; then
 fi
 
 GREEN="\033[38;5;190m"
-# make a backup
-rm $CLUSTERFILE.bak 2> /dev/null
-cp $CLUSTERFILE $CLUSTERFILE.bak
 
-# Verify the cluster.fw contains the required markers
-for MARKER in BEGIN_AUTOBLACKLIST4 END_AUTOBLACKLIST4 BEGIN_AUTOBLACKLIST6 END_AUTOBLACKLIST6; do
-	if ! grep -q "# $MARKER" $CLUSTERFILE; then
-		showError "ERROR $CLUSTERFILE is missing marker '# $MARKER'"
-		showError "Add BEGIN_AUTOBLACKLIST4/END_AUTOBLACKLIST4 and BEGIN_AUTOBLACKLIST6/END_AUTOBLACKLIST6 comments inside the respective [IPSET] sections."
+# Verify the ipset names exist in cluster.fw (they must be defined there for PVE rules to reference them)
+for IPSET in zzzblacklist4 zzzblacklist6; do
+	if ! grep -q "^\[IPSET $IPSET\]" $CLUSTERFILE; then
+		showError "ERROR $CLUSTERFILE is missing '[IPSET $IPSET]' section."
+		showError "Add an empty [IPSET $IPSET] section so PVE rules can reference it."
 		exit 1
 	fi
 done
 
-# Combine the IPv4 in CIDR ranges
+# Combine the IPv4 addresses into CIDR ranges
 iprange $FILEv4 > iprange.txt
 
 # Ensure we downloaded enough entries
@@ -165,86 +162,47 @@ if [[ -f "$FILEv6" ]]; then
 	fi
 fi
 
-# Build the replacement blocks (content only, markers are preserved in the file)
-cat iprange.txt > ipv4_block.txt
-echo "# $LINES IPv4 addresses in $CIDR CIDR ranges $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv4_block.txt
+# Load ipset entries via the Proxmox API (pvesh), bypassing the 512KB pmxcfs file limit.
+# cluster.fw defines the empty ipset sections so firewall rules can reference them;
+# the actual entries live only in the API/kernel, not in cluster.fw.
 
-> ipv6_block.txt
-if [[ -e "iprange6.txt" ]]; then
-	cat iprange6.txt > ipv6_block.txt
-	echo "# $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv6_block.txt
-fi
+function loadIpset {
+	local IPSET_NAME="$1"
+	local SOURCE_FILE="$2"
+	local COUNT=0
+	local ERRORS=0
 
-# Replace content between markers using head/tail to avoid awk stdout size limits.
-# Each section (IPv4, IPv6) is handled in a separate pass so order doesn't matter.
-# All work is done on temp files; cluster.fw is only overwritten on full success.
+	showInfo "Clearing existing entries from ipset $IPSET_NAME..."
+	pvesh delete /cluster/firewall/ipset/$IPSET_NAME --force 2>/dev/null || true
+	pvesh create /cluster/firewall/ipset --name $IPSET_NAME 2>/dev/null || true
 
-function replaceBlock {
-	local FILE="$1"
-	local BEGIN_MARKER="$2"
-	local END_MARKER="$3"
-	local BLOCK_FILE="$4"
-	local OUT="$5"
+	showInfo "Loading $(wc -l < "$SOURCE_FILE") entries into ipset $IPSET_NAME..."
+	while IFS= read -r CIDR_ENTRY; do
+		[[ -z "$CIDR_ENTRY" || "$CIDR_ENTRY" == \#* ]] && continue
+		if ! pvesh create /cluster/firewall/ipset/$IPSET_NAME --cidr "$CIDR_ENTRY" 2>/dev/null; then
+			(( ERRORS++ ))
+		fi
+		(( COUNT++ ))
+		(( COUNT % 1000 == 0 )) && showInfo "  ... $COUNT entries loaded"
+	done < "$SOURCE_FILE"
 
-	local BEGIN_LINE END_LINE TOTAL
-	BEGIN_LINE=$(grep -n "# $BEGIN_MARKER" "$FILE" | cut -d: -f1)
-	END_LINE=$(grep -n "# $END_MARKER" "$FILE" | cut -d: -f1)
-	TOTAL=$(wc -l < "$FILE")
-
-	if [[ -z "$BEGIN_LINE" || -z "$END_LINE" ]]; then
-		showError "ERROR markers $BEGIN_MARKER / $END_MARKER not found in $FILE"
-		return 1
+	if [[ "$ERRORS" -gt 0 ]]; then
+		showError "WARNING: $ERRORS entries failed to load into $IPSET_NAME"
 	fi
-
-	# lines before and including the BEGIN marker
-	head -n "$BEGIN_LINE" "$FILE" > "$OUT"        || { showError "ERROR head failed for $BEGIN_MARKER"; return 1; }
-	# the new block content
-	cat "$BLOCK_FILE" >> "$OUT"                   || { showError "ERROR cat failed for $BLOCK_FILE"; return 1; }
-	# lines from the END marker to the end of file
-	tail -n $(( TOTAL - END_LINE + 1 )) "$FILE" >> "$OUT" || { showError "ERROR tail failed for $END_MARKER"; return 1; }
+	showInfo "ipset $IPSET_NAME: $COUNT entries loaded ($ERRORS errors)"
 }
 
-WORK1="cluster.fw.tmp"
-WORK2="cluster.fw.tmp2"
+loadIpset "zzzblacklist4" "iprange.txt"
+showInfo "$LINES IPv4 addresses compressed to $CIDR CIDR ranges — updated $(date '+%Y-%m-%d')"
 
-function cleanupTmp {
-	rm -f "$WORK1" "$WORK2"
-}
-
-cp "$CLUSTERFILE" "$WORK1"
-
-if ! replaceBlock "$WORK1" "BEGIN_AUTOBLACKLIST4" "END_AUTOBLACKLIST4" "ipv4_block.txt" "$WORK2"; then
-	showError "ERROR failed to update IPv4 block. cluster.fw was not modified."
-	cleanupTmp
-	exit 1
+if [[ -e "iprange6.txt" ]]; then
+	loadIpset "zzzblacklist6" "iprange6.txt"
+	showInfo "$MSGv6 loaded into zzzblacklist6"
 fi
-mv "$WORK2" "$WORK1"
-
-if ! replaceBlock "$WORK1" "BEGIN_AUTOBLACKLIST6" "END_AUTOBLACKLIST6" "ipv6_block.txt" "$WORK2"; then
-	showError "ERROR failed to update IPv6 block. cluster.fw was not modified."
-	cleanupTmp
-	exit 1
-fi
-
-# Both passes succeeded — copy result to cluster.fw (mv across filesystems not reliable)
-cp "$WORK2" "$CLUSTERFILE" || { showError "ERROR writing cluster.fw failed, original is intact."; cleanupTmp; exit 1; }
-cleanupTmp
-
-showInfo "File created: `ls -lah $CLUSTERFILE`"
 
 GREEN="\033[38;5;226m"
-showInfo "Compile the PVE Firewall Rules: pve-firewall compile"
+showInfo "Reloading PVE Firewall rules"
 pve-firewall compile > /dev/null
-printf "$BLACK"
-for i in $(seq 20 6 240);
-do
-		printf "\033[38;5;${i}m."
-		sleep 0.15
-done
-
-echo -e "$RESET\n"
-
-showInfo "Restart the PVE Firewall"
 pve-firewall restart
 GREEN="\033[38;5;046m"
 showInfo "------\nThe End.\n\n"

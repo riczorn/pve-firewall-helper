@@ -9,7 +9,8 @@
 # This file defines three sets/aliases for use by the VMs & CTs:
 # dc/admins, dc/ovh, blacklist
 
-# The script that generated cluster.fw logs in /var/log/pve-firewall-helper_log
+# update-ip-blacklist.sh loads blacklist entries via pvesh (Proxmox API).
+# Logs: /var/log/pve-firewall-helper_log
 
 # DO NOT change this file now. First see if the rules are loaded in the
 # Proxmox interface, it will be much easier working from there.
@@ -49,15 +50,10 @@ dc/ovh7
 dc/ovh8
 
 [IPSET zzzblacklist4]
-# BEGIN_AUTOBLACKLIST4
-1.10.146.175
-# another 75k IPv4 addresses will be added here by `update-ip-blacklist.sh`
-# END_AUTOBLACKLIST4
+# Populated at runtime by update-ip-blacklist.sh via pvesh (Proxmox API)
 
 [IPSET zzzblacklist6]
-# BEGIN_AUTOBLACKLIST6
-2001:470:1:332:B0:00:B1:35
-# END_AUTOBLACKLIST6
+# Populated at runtime by update-ip-blacklist.sh via pvesh (Proxmox API)
 
 [RULES]
 
