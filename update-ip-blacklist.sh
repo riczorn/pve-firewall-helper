@@ -166,24 +166,31 @@ if [[ -f "$FILEv6" ]]; then
 fi
 
 # Build the replacement blocks (content only, markers are preserved in the file)
-IPV4_BLOCK="$(cat iprange.txt)
-# $LINES IPv4 addresses in $CIDR CIDR ranges $MSGv6 — updated $(date '+%Y-%m-%d')"
+cat iprange.txt > ipv4_block.txt
+echo "# $LINES IPv4 addresses in $CIDR CIDR ranges $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv4_block.txt
 
-IPV6_BLOCK=""
+> ipv6_block.txt
 if [[ -e "iprange6.txt" ]]; then
-	IPV6_BLOCK="$(cat iprange6.txt)
-# $MSGv6 — updated $(date '+%Y-%m-%d')"
+	cat iprange6.txt > ipv6_block.txt
+	echo "# $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv6_block.txt
 fi
 
 # Replace content between markers using awk; markers themselves are kept intact.
 # This is resilient to section reordering and manual edits outside the markers.
-awk -v ipv4="$IPV4_BLOCK" -v ipv6="$IPV6_BLOCK" '
-	/# BEGIN_AUTOBLACKLIST4/ { print; print ipv4; skip=1; next }
+# Output to a temporary file to prevent emptying the cluster.fw file on any errors.
+if awk '
+	/# BEGIN_AUTOBLACKLIST4/ { print; while((getline line < "ipv4_block.txt") > 0) print line; close("ipv4_block.txt"); skip=1; next }
 	/# END_AUTOBLACKLIST4/   { skip=0 }
-	/# BEGIN_AUTOBLACKLIST6/ { print; if (ipv6 != "") print ipv6; skip=1; next }
+	/# BEGIN_AUTOBLACKLIST6/ { print; while((getline line < "ipv6_block.txt") > 0) print line; close("ipv6_block.txt"); skip=1; next }
 	/# END_AUTOBLACKLIST6/   { skip=0 }
 	!skip { print }
-' $CLUSTERFILE.bak > $CLUSTERFILE
+' "$CLUSTERFILE.bak" > "$CLUSTERFILE.tmp"; then
+	mv "$CLUSTERFILE.tmp" "$CLUSTERFILE"
+else
+	showError "ERROR failed to update the cluster.fw file (awk error)."
+	rm -f "$CLUSTERFILE.tmp"
+	exit 1
+fi
 
 showInfo "File created: `ls -lah $CLUSTERFILE`"
 
