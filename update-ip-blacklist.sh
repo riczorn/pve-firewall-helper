@@ -152,9 +152,18 @@ fi
 
 GREEN="\033[38;5;190m"
 
-# Verify the cluster.fw contains the required markers
+# Verify the cluster.fw contains the required markers.
+# If the live file is missing markers (e.g. corrupted by a prior failed run),
+# restore it from the repo copy next to this script before aborting.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_CLUSTERFILE="$SCRIPT_DIR/cluster.fw"
 for MARKER in BEGIN_AUTOBLACKLIST4 END_AUTOBLACKLIST4 BEGIN_AUTOBLACKLIST6 END_AUTOBLACKLIST6; do
 	if ! grep -q "# $MARKER" $CLUSTERFILE; then
+		if [[ -f "$REPO_CLUSTERFILE" ]] && grep -q "# $MARKER" "$REPO_CLUSTERFILE"; then
+			showError "WARNING $CLUSTERFILE is missing marker '# $MARKER' — restoring from $REPO_CLUSTERFILE"
+			cp "$REPO_CLUSTERFILE" "$CLUSTERFILE"
+			break
+		fi
 		showError "ERROR $CLUSTERFILE is missing marker '# $MARKER'"
 		showError "Add BEGIN_AUTOBLACKLIST4/END_AUTOBLACKLIST4 and BEGIN_AUTOBLACKLIST6/END_AUTOBLACKLIST6 comments inside the respective [IPSET] sections."
 		exit 1
@@ -171,8 +180,8 @@ if [ "$IPRANGELINES" -lt "500" ]; then
 	exit 1
 fi
 
-CIDR=`wc -l iprange.txt | tr -s ' ' | cut -f 1 -d ' '`
-LINES=`wc -l $FILEv4 | tr -s ' ' | cut -f 1 -d ' '`
+CIDR=$(wc -l < iprange.txt)
+LINES=$(grep -c '^[0-9]' "$FILEv4")
 
 MSGv6=""
 if [[ -f "$FILEv6" ]]; then
