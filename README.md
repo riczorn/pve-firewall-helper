@@ -34,9 +34,9 @@ then proceeds to create a firewall configuration for the Datacenter, and a firew
 
 It also invokes:
 ```bash
-apt install zip iprange ipset
+apt install zip iprange
 ```
-Replace it with your favourite package manager but make sure you have all three installed. `iprange` compresses individual IPs into CIDR blocks; `ipset` manages the kernel-level hash sets used for fast blacklist matching.
+Replace it with your favourite package manager but make sure you have both installed, else the ip range will be empty.
 
 Clone the repo with your favourite method i.e.
 
@@ -76,8 +76,14 @@ The default cluster-level firewall, which also defines the three sets used in th
 - dc/ovh,    (in case you use OVH's server monitoring)
 - dc/admins (your IPs)
 - dc/ovh    (OVH monitoring, if applicable)
+- zzzblacklist4  (IPv4 addresses from abuseipdb, populated by `update-ip-blacklist.sh`)
+- zzzblacklist6  (IPv6 addresses from abuseipdb, populated by `update-ip-blacklist.sh`)
 
-The blacklists (`zzzblacklist4`, `zzzblacklist6`) are **no longer stored in `cluster.fw`**. They are managed directly as kernel ipsets by `update-ip-blacklist.sh` and enforced via `iptables`/`ip6tables` DROP rules, bypassing the 512KB pmxcfs per-file size limit. The ipsets are persisted to `/etc/ipset-blacklist.save` and restored at boot by the `ipset-blacklist.service` systemd unit installed by `install.sh`.
+    The names start with zzz as Proxmox interface
+    is keen on sorting the IPSets, this way they
+    stay last before the [RULES].
+
+`cluster.fw` (and all firewall files) are stored in `./pve-firewall/` inside the install directory, which is bind-mounted over `/etc/pve/firewall/` at boot by `pve-firewall-mount.service`. This bypasses pmxcfs's 512KB per-file size limit while keeping all rules fully visible and editable in the Proxmox web UI.
 
 ### Enable the rules
 
@@ -161,7 +167,7 @@ References
 ./update-ip-blacklist.sh
 ```
 
-Downloads the updated abuseipdb list(s), compresses them into CIDR ranges with `iprange`, then bulk-loads them into kernel ipsets via `ipset restore`. A DROP rule is inserted into `iptables`/`ip6tables` for each set. The update is atomic: entries are loaded into a temporary set which is then swapped with the live set, so there is no window where the blacklist is empty.
+Downloads the updated abuseipdb list(s), compresses them into CIDR ranges with `iprange`, then writes them directly into `cluster.fw` between the `BEGIN/END_AUTOBLACKLIST4` and `BEGIN/END_AUTOBLACKLIST6` markers. The rules are fully visible and manageable in the Proxmox web UI.
 
 ### Syntax
 
@@ -183,9 +189,9 @@ If only IPv4 rules are required, only `abuseipdb-s100-30d.ipv4` is downloaded (~
 
 If IPv6 rules are included (`--all`) the full zip from the repo is downloaded, then the individual days are sorted to extract the latest 30 days of IPv6 addresses. This takes longer as the repo is ~90MB.
 
-The blacklists are stored as kernel ipsets (not in `/etc/pve/firewall/`), which have no file size limit. After each update, the ipsets are saved to `/etc/ipset-blacklist.save` and restored at boot by `ipset-blacklist.service`.
+`cluster.fw` is stored in `./pve-firewall/` (inside the install directory) which is bind-mounted over `/etc/pve/firewall/` by `pve-firewall-mount.service`. This sidesteps pmxcfs's 512KB per-file limit — the file lives on the regular filesystem while PVE reads it from its expected path. All rules remain visible and editable in the Proxmox web UI.
 
-In July 2024, the 30-days list had 75,000 IPv4 addresses compressed to ~70,000 CIDR ranges, and ~170 IPv6 hosts. By 2026 the IPv4 list had grown to ~75,000 CIDR ranges (~6.7MB), which is why direct ipset management was adopted.
+In July 2024, the 30-days list had 75,000 IPv4 addresses compressed to ~70,000 CIDR ranges, and ~170 IPv6 hosts. By 2026 the IPv4 list had grown to ~75,000 CIDR ranges (~6.7MB).
 
 ## Scheduling
 

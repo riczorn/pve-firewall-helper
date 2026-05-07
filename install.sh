@@ -58,7 +58,7 @@ LOG=pve-firewall-helper_install_log
 touch $LOG
 tail -f $LOG  2> /dev/null &
 
-apt -qq -y install zip iprange ipset
+apt -qq -y install zip iprange
 
 echo "Backup the initial configuration files of $PVE_FW_DIR" > $LOG
 
@@ -74,50 +74,57 @@ if [ "$SLOWDOWN" == "1" ]; then
 fi
 
 
-echo "Copy initial cluster rules to $PVE_FW_DIR/" >> $LOG
-cp cluster.fw $PVE_FW_DIR/
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+FW_STORE="$INSTALL_DIR/pve-firewall"
+SYSTEMD_SERVICE=/etc/systemd/system/pve-firewall-mount.service
+
+# Seed the local firewall store: start from any existing /etc/pve/firewall files,
+# then overlay cluster.fw and generic.fw from this repo.
+echo "Seeding $FW_STORE from $PVE_FW_DIR and repo files..." >> $LOG
+mkdir -p "$FW_STORE"
+cp $PVE_FW_DIR/*.fw "$FW_STORE/" 2>/dev/null || true
+
+echo "Copy initial cluster rules to $FW_STORE/" >> $LOG
+cp cluster.fw "$FW_STORE/"
 
 for P in `/usr/bin/lxc-ls`
 do
-        echo -e "  Copy intial firewall rules for the CT $P" >> $LOG
-        cp generic.fw $PVE_FW_DIR/$P.fw
+        echo -e "  Copy initial firewall rules for the CT $P" >> $LOG
+        cp generic.fw "$FW_STORE/$P.fw"
 done
 
 for P in `/usr/sbin/qm list | grep -v 'VMID' | tr -s ' ' | cut -d ' ' -f 2`
 do
-        echo -e "  Copy intial firewall rules for the VM $P" >> $LOG
-        cp generic.fw $PVE_FW_DIR/$P.fw
+        echo -e "  Copy initial firewall rules for the VM $P" >> $LOG
+        cp generic.fw "$FW_STORE/$P.fw"
 done
 
-echo "Installing ipset-blacklist restore service..." >> $LOG
+echo "Setting up bind-mount of $FW_STORE over $PVE_FW_DIR..." >> $LOG
 
-IPSET_SAVE=/etc/ipset-blacklist.save
-SYSTEMD_SERVICE=/etc/systemd/system/ipset-blacklist.service
-
-# Create an empty save file if it doesn't exist yet (update-ip-blacklist.sh will populate it)
-touch $IPSET_SAVE
-
-cat > $SYSTEMD_SERVICE << 'EOF'
+# Write the systemd unit that bind-mounts our folder over /etc/pve/firewall after pmxcfs
+cat > $SYSTEMD_SERVICE << EOF
 [Unit]
-Description=Restore ipset blacklists (zzzblacklist4, zzzblacklist6)
-Before=pve-firewall.service network.target
-DefaultDependencies=no
+Description=Bind-mount $FW_STORE over $PVE_FW_DIR
+# pve-cluster mounts pmxcfs (/etc/pve); we must run after it so the mountpoint exists
+After=pve-cluster.service
+Requires=pve-cluster.service
+# pve-firewall must start after our mount is in place
+Before=pve-firewall.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/sbin/ipset restore -exist -file /etc/ipset-blacklist.save
-ExecStart=/bin/sh -c 'ipset list zzzblacklist4 >/dev/null 2>&1 && { iptables -C INPUT -m set --match-set zzzblacklist4 src -j DROP 2>/dev/null || iptables -I INPUT -m set --match-set zzzblacklist4 src -j DROP; } || true'
-ExecStart=/bin/sh -c 'ipset list zzzblacklist6 >/dev/null 2>&1 && { ip6tables -C INPUT -m set --match-set zzzblacklist6 src -j DROP 2>/dev/null || ip6tables -I INPUT -m set --match-set zzzblacklist6 src -j DROP; } || true'
-ExecStop=/sbin/ipset save -file /etc/ipset-blacklist.save
+ExecStart=/bin/mount --bind $FW_STORE $PVE_FW_DIR
+ExecStop=/bin/umount $PVE_FW_DIR
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable ipset-blacklist.service
-echo "ipset-blacklist.service installed and enabled." >> $LOG
+systemctl enable pve-firewall-mount.service
+systemctl start pve-firewall-mount.service
+echo "pve-firewall-mount.service installed, enabled and started." >> $LOG
 
 echo -e "All rules have been created. \nNow press any key to continue restarting the firewall"
 echo -e "or press CTRL-C to do it yourself later.\n"
@@ -134,4 +141,4 @@ echo "Restarting the fw" >> $LOG
 pve-firewall restart >> $LOG
 
 echo -e "------\nDone\n" >> $LOG
-echo -e "------\nNow run update-ip-blacklist.sh to populate the blacklists, then check the rules and enable the firewall as explained in README.md\n\n" >> $LOG
+echo -e "------\nNow check the rules and enable the firewall as explained in README.md\n\n" >> $LOG

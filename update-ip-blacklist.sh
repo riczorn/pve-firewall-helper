@@ -130,7 +130,14 @@ fi
 
 GREEN="\033[38;5;190m"
 
-IPSET_SAVE=/etc/ipset-blacklist.save
+# Verify the cluster.fw contains the required markers
+for MARKER in BEGIN_AUTOBLACKLIST4 END_AUTOBLACKLIST4 BEGIN_AUTOBLACKLIST6 END_AUTOBLACKLIST6; do
+	if ! grep -q "# $MARKER" $CLUSTERFILE; then
+		showError "ERROR $CLUSTERFILE is missing marker '# $MARKER'"
+		showError "Add BEGIN_AUTOBLACKLIST4/END_AUTOBLACKLIST4 and BEGIN_AUTOBLACKLIST6/END_AUTOBLACKLIST6 comments inside the respective [IPSET] sections."
+		exit 1
+	fi
+done
 
 # Combine the IPv4 addresses into CIDR ranges
 iprange $FILEv4 > iprange.txt
@@ -155,58 +162,74 @@ if [[ -f "$FILEv6" ]]; then
 	fi
 fi
 
-# Load entries into a kernel ipset via bulk restore, then atomically swap with the live set.
-# Using a temp set avoids any window where the live set is empty during the update.
-function loadIpset {
-	local IPSET_NAME="$1"
-	local IPSET_TMP="${IPSET_NAME}_tmp"
-	local FAMILY="$2"       # inet or inet6
-	local SOURCE_FILE="$3"
+# Build the replacement blocks (content only, markers are preserved in the file)
+cat iprange.txt > ipv4_block.txt
+echo "# $LINES IPv4 addresses in $CIDR CIDR ranges $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv4_block.txt
 
-	# Build ipset restore input for the temp set
-	{
-		echo "create $IPSET_TMP hash:net family $FAMILY hashsize 65536 maxelem 1048576"
-		while IFS= read -r ENTRY; do
-			[[ -z "$ENTRY" || "$ENTRY" == \#* ]] && continue
-			echo "add $IPSET_TMP $ENTRY"
-		done < "$SOURCE_FILE"
-	} | ipset restore -exist
-
-	# Ensure the live set exists before swapping
-	ipset create $IPSET_NAME hash:net family $FAMILY hashsize 65536 maxelem 1048576 -exist
-
-	# Atomic swap: live set gets the new entries, tmp gets the old ones
-	ipset swap $IPSET_NAME $IPSET_TMP
-	ipset destroy $IPSET_TMP
-}
-
-# Ensure DROP rules are in place (idempotent: -C checks before -I inserts)
-function ensureDropRule {
-	local CMD="$1"       # iptables or ip6tables
-	local IPSET_NAME="$2"
-	if ! $CMD -C INPUT -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null; then
-		$CMD -I INPUT -m set --match-set $IPSET_NAME src -j DROP
-	fi
-}
-
-showInfo "Loading $CIDR IPv4 CIDR ranges into kernel ipset zzzblacklist4..."
-loadIpset "zzzblacklist4" "inet" "iprange.txt"
-ensureDropRule iptables zzzblacklist4
-showInfo "$LINES IPv4 addresses compressed to $CIDR CIDR ranges loaded — $(date '+%Y-%m-%d')"
-
+> ipv6_block.txt
 if [[ -e "iprange6.txt" ]]; then
-	showInfo "Loading IPv6 addresses into kernel ipset zzzblacklist6..."
-	loadIpset "zzzblacklist6" "inet6" "iprange6.txt"
-	ensureDropRule ip6tables zzzblacklist6
-	showInfo "$MSGv6 loaded — $(date '+%Y-%m-%d')"
+	cat iprange6.txt > ipv6_block.txt
+	echo "# $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv6_block.txt
 fi
 
-# Persist ipsets so they survive reboots
-showInfo "Saving ipsets to $IPSET_SAVE"
-ipset save zzzblacklist4 > $IPSET_SAVE
-if ipset list zzzblacklist6 &>/dev/null; then
-	ipset save zzzblacklist6 >> $IPSET_SAVE
+# Replace content between markers using head/tail to avoid awk stdout size limits.
+# Each section (IPv4, IPv6) is handled in a separate pass so order doesn't matter.
+# All work is done on temp files; cluster.fw is only overwritten on full success.
+# The bind mount (pve-firewall-mount.service) ensures cluster.fw lives on the regular
+# filesystem with no size limit, while PVE reads it from /etc/pve/firewall/ as normal.
+
+function replaceBlock {
+	local FILE="$1"
+	local BEGIN_MARKER="$2"
+	local END_MARKER="$3"
+	local BLOCK_FILE="$4"
+	local OUT="$5"
+
+	local BEGIN_LINE END_LINE TOTAL
+	BEGIN_LINE=$(grep -n "# $BEGIN_MARKER" "$FILE" | cut -d: -f1)
+	END_LINE=$(grep -n "# $END_MARKER" "$FILE" | cut -d: -f1)
+	TOTAL=$(wc -l < "$FILE")
+
+	if [[ -z "$BEGIN_LINE" || -z "$END_LINE" ]]; then
+		showError "ERROR markers $BEGIN_MARKER / $END_MARKER not found in $FILE"
+		return 1
+	fi
+
+	# lines before and including the BEGIN marker
+	head -n "$BEGIN_LINE" "$FILE" > "$OUT"        || { showError "ERROR head failed for $BEGIN_MARKER"; return 1; }
+	# the new block content
+	cat "$BLOCK_FILE" >> "$OUT"                   || { showError "ERROR cat failed for $BLOCK_FILE"; return 1; }
+	# lines from the END marker to the end of file
+	tail -n $(( TOTAL - END_LINE + 1 )) "$FILE" >> "$OUT" || { showError "ERROR tail failed for $END_MARKER"; return 1; }
+}
+
+WORK1="cluster.fw.tmp"
+WORK2="cluster.fw.tmp2"
+
+function cleanupTmp {
+	rm -f "$WORK1" "$WORK2"
+}
+
+cp "$CLUSTERFILE" "$WORK1"
+
+if ! replaceBlock "$WORK1" "BEGIN_AUTOBLACKLIST4" "END_AUTOBLACKLIST4" "ipv4_block.txt" "$WORK2"; then
+	showError "ERROR failed to update IPv4 block. cluster.fw was not modified."
+	cleanupTmp
+	exit 1
 fi
+mv "$WORK2" "$WORK1"
+
+if ! replaceBlock "$WORK1" "BEGIN_AUTOBLACKLIST6" "END_AUTOBLACKLIST6" "ipv6_block.txt" "$WORK2"; then
+	showError "ERROR failed to update IPv6 block. cluster.fw was not modified."
+	cleanupTmp
+	exit 1
+fi
+
+# Both passes succeeded — copy result to cluster.fw
+cp "$WORK2" "$CLUSTERFILE" || { showError "ERROR writing cluster.fw failed, original is intact. Temp files left: $(pwd)/$WORK2"; exit 1; }
+cleanupTmp
+
+showInfo "File updated: `ls -lah $CLUSTERFILE`"
 
 GREEN="\033[38;5;226m"
 showInfo "Reloading PVE Firewall rules"
