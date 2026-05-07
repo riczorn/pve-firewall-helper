@@ -84,8 +84,9 @@ echo "Seeding $FW_STORE from $PVE_FW_DIR and repo files..." >> $LOG
 mkdir -p "$FW_STORE"
 cp $PVE_FW_DIR/*.fw "$FW_STORE/" 2>/dev/null || true
 
-echo "Copy initial cluster rules to $FW_STORE/" >> $LOG
+echo "Copy initial firewall rules to $FW_STORE/" >> $LOG
 cp cluster.fw "$FW_STORE/"
+cp blacklist.fw "$FW_STORE/"
 
 for P in `/usr/bin/lxc-ls`
 do
