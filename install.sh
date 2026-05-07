@@ -100,15 +100,17 @@ done
 echo "Installing ipset-blacklist restore service..." >> $LOG
 
 IPSET_SAVE=/etc/ipset-blacklist.save
-SYSTEMD_SERVICE=/etc/systemd/system/ipset-blacklist.service
+SYSTEMD_SERVICE=/etc/systemd/system/blacklist-rules.service
 
 # Create an empty save file if it doesn't exist yet (update-ip-blacklist.sh will populate it)
 touch $IPSET_SAVE
 
 cat > $SYSTEMD_SERVICE << 'EOF'
 [Unit]
-Description=Restore ipset blacklists (zzzblacklist4, zzzblacklist6)
+Description=Restore ipset blacklists and iptables DROP rules (zzzblacklist4, zzzblacklist6)
 Before=pve-firewall.service network.target
+# Re-run after iptables/netfilter is restarted so DROP rules are always restored
+After=netfilter-persistent.service iptables.service
 DefaultDependencies=no
 
 [Service]
@@ -124,8 +126,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable ipset-blacklist.service
-echo "ipset-blacklist.service installed and enabled." >> $LOG
+systemctl enable blacklist-rules.service
+echo "blacklist-rules.service installed and enabled." >> $LOG
 
 echo -e "All rules have been created. \nNow press any key to continue restarting the firewall"
 echo -e "or press CTRL-C to do it yourself later.\n"
