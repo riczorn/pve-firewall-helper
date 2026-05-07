@@ -175,22 +175,57 @@ if [[ -e "iprange6.txt" ]]; then
 	echo "# $MSGv6 — updated $(date '+%Y-%m-%d')" >> ipv6_block.txt
 fi
 
-# Replace content between markers using awk; markers themselves are kept intact.
-# This is resilient to section reordering and manual edits outside the markers.
-# Output to a temporary file to prevent emptying the cluster.fw file on any errors.
-if awk '
-	/# BEGIN_AUTOBLACKLIST4/ { print; while((getline line < "ipv4_block.txt") > 0) print line; close("ipv4_block.txt"); skip=1; next }
-	/# END_AUTOBLACKLIST4/   { skip=0 }
-	/# BEGIN_AUTOBLACKLIST6/ { print; while((getline line < "ipv6_block.txt") > 0) print line; close("ipv6_block.txt"); skip=1; next }
-	/# END_AUTOBLACKLIST6/   { skip=0 }
-	!skip { print }
-' "$CLUSTERFILE.bak" > "$CLUSTERFILE.tmp"; then
-	mv "$CLUSTERFILE.tmp" "$CLUSTERFILE"
-else
-	showError "ERROR failed to update the cluster.fw file (awk error)."
-	rm -f "$CLUSTERFILE.tmp"
+# Replace content between markers using head/tail to avoid awk stdout size limits.
+# Each section (IPv4, IPv6) is handled in a separate pass so order doesn't matter.
+# All work is done on temp files; cluster.fw is only overwritten on full success.
+
+function replaceBlock {
+	local FILE="$1"
+	local BEGIN_MARKER="$2"
+	local END_MARKER="$3"
+	local BLOCK_FILE="$4"
+	local OUT="$5"
+
+	local BEGIN_LINE END_LINE TOTAL
+	BEGIN_LINE=$(grep -n "# $BEGIN_MARKER" "$FILE" | cut -d: -f1)
+	END_LINE=$(grep -n "# $END_MARKER" "$FILE" | cut -d: -f1)
+	TOTAL=$(wc -l < "$FILE")
+
+	if [[ -z "$BEGIN_LINE" || -z "$END_LINE" ]]; then
+		showError "ERROR markers $BEGIN_MARKER / $END_MARKER not found in $FILE"
+		return 1
+	fi
+
+	# lines before and including the BEGIN marker
+	head -n "$BEGIN_LINE" "$FILE" > "$OUT"        || { showError "ERROR head failed for $BEGIN_MARKER"; return 1; }
+	# the new block content
+	cat "$BLOCK_FILE" >> "$OUT"                   || { showError "ERROR cat failed for $BLOCK_FILE"; return 1; }
+	# lines from the END marker to the end of file
+	tail -n $(( TOTAL - END_LINE + 1 )) "$FILE" >> "$OUT" || { showError "ERROR tail failed for $END_MARKER"; return 1; }
+}
+
+function cleanupTmp {
+	rm -f "$CLUSTERFILE.tmp" "$CLUSTERFILE.tmp2"
+}
+
+cp "$CLUSTERFILE.bak" "$CLUSTERFILE.tmp"
+
+if ! replaceBlock "$CLUSTERFILE.tmp" "BEGIN_AUTOBLACKLIST4" "END_AUTOBLACKLIST4" "ipv4_block.txt" "$CLUSTERFILE.tmp2"; then
+	showError "ERROR failed to update IPv4 block. cluster.fw was not modified."
+	cleanupTmp
 	exit 1
 fi
+mv "$CLUSTERFILE.tmp2" "$CLUSTERFILE.tmp"
+
+if ! replaceBlock "$CLUSTERFILE.tmp" "BEGIN_AUTOBLACKLIST6" "END_AUTOBLACKLIST6" "ipv6_block.txt" "$CLUSTERFILE.tmp2"; then
+	showError "ERROR failed to update IPv6 block. cluster.fw was not modified."
+	cleanupTmp
+	exit 1
+fi
+
+# Both passes succeeded — atomically promote the result
+mv "$CLUSTERFILE.tmp2" "$CLUSTERFILE" || { showError "ERROR mv failed, cluster.fw was not modified."; cleanupTmp; exit 1; }
+rm -f "$CLUSTERFILE.tmp"
 
 showInfo "File created: `ls -lah $CLUSTERFILE`"
 
