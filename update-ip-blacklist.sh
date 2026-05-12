@@ -15,10 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_DIR="$SCRIPT_DIR/tmp"
 IPSET_SAVE="$TMP_DIR/blacklist-rules.save"
 
-URLS=("https://iplists.firehol.org/files/firehol_level1.netset"
-"https://iplists.firehol.org/files/firehol_level2.netset"
-"https://iplists.firehol.org/files/firehol_level3.netset"
-"https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4")
+URLS=("https://iplists.firehol.org/files/firehol_level1.netset" "https://iplists.firehol.org/files/firehol_level2.netset" "https://iplists.firehol.org/files/firehol_level3.netset" "https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4")
 
 FILE_DEST="$TMP_DIR/list.ipv4"
 FILE_TMP="$TMP_DIR/list.tmp"
