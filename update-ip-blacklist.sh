@@ -15,7 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_DIR="$SCRIPT_DIR/tmp"
 IPSET_SAVE="$TMP_DIR/blacklist-rules.save"
 
-URLS=("https://iplists.firehol.org/files/firehol_level1.netset" "https://iplists.firehol.org/files/firehol_level2.netset" "https://iplists.firehol.org/files/firehol_level3.netset" "https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4")
+# URLS=("https://iplists.firehol.org/files/firehol_level1.netset" "https://iplists.firehol.org/files/firehol_level2.netset" "https://iplists.firehol.org/files/firehol_level3.netset" "https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4")
+URLS=("https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4")
 
 FILE_DEST="$TMP_DIR/list.ipv4"
 FILE_TMP="$TMP_DIR/list.tmp"
@@ -46,7 +47,7 @@ function showHelp {
 	echo -e "  ${CYAN}--no-input${RESET}    do not block on the INPUT chain   (host traffic)"
 	echo -e "  ${CYAN}--no-forward${RESET}  do not block on the FORWARD chain (VM/CT traffic)"
 	echo -e "  ${CYAN}--no-output${RESET}   do not block on the OUTPUT chain  (outbound traffic)"
-	echo -e "  ${GREEN}--enable-log${RESET}   log all actions to dmesg - /var/log/kern.log"
+	# echo -e "  ${GREEN}--enable-log${RESET}   log all actions to dmesg - /var/log/kern.log"
 	}
 
 function showError {
@@ -70,8 +71,8 @@ function parseOptions {
 		  BLOCK_FORWARD=0; shift ;;
 		--no-output)
 		  BLOCK_OUTPUT=0; shift ;;
-		--enable-log)
-		  ENABLE_LOG='-m limit --limit 5/min -j LOG --log-prefix "PVE_FH: "'; shift ;;
+		# --enable-log)
+		#   ENABLE_LOG='-m limit --limit 5/min -j LOG --log-prefix "PVE_FH: "'; shift ;;
 		-h|--help)
 				showHelp
 				return 1
@@ -117,7 +118,7 @@ function ensureDropRules {
 	[[ $BLOCK_INPUT   == 1 ]] && { iptables -C INPUT   -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null || iptables -I INPUT   -m set --match-set $IPSET_NAME src -j DROP; }
 	[[ $BLOCK_FORWARD == 1 ]] && { iptables -C FORWARD -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null || iptables -I FORWARD -m set --match-set $IPSET_NAME src -j DROP; }
 	[[ $BLOCK_OUTPUT  == 1 ]] && { iptables -C OUTPUT  -m set --match-set $IPSET_NAME dst -j DROP 2>/dev/null || iptables -I OUTPUT  -m set --match-set $IPSET_NAME dst -j DROP; }
-	# Ricordati di aggiungere il log. Dopo. Fai ciclo.
+	# Add logging logic
 }
 
 parseOptions $@ || exit 1
