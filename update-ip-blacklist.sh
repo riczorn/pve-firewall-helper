@@ -32,6 +32,7 @@ YELLOW="\033[38;5;226m"
 BRIGHTGREEN="\033[38;5;046m"
 BLACK="\033[48;5;232m"
 RESET="\033[0m"
+ENABLE_LOG=""
 
 
 function showHelp {
@@ -45,7 +46,8 @@ function showHelp {
 	echo -e "  ${CYAN}--no-input${RESET}    do not block on the INPUT chain   (host traffic)"
 	echo -e "  ${CYAN}--no-forward${RESET}  do not block on the FORWARD chain (VM/CT traffic)"
 	echo -e "  ${CYAN}--no-output${RESET}   do not block on the OUTPUT chain  (outbound traffic)"
-}
+	echo -e "  ${GREEN}--enable-log${RESET}   log all actions to dmesg - /var/log/kern.log"
+	}
 
 function showError {
 	echo -e "$RED$@$RESET"
@@ -68,6 +70,8 @@ function parseOptions {
 		  BLOCK_FORWARD=0; shift ;;
 		--no-output)
 		  BLOCK_OUTPUT=0; shift ;;
+		--enable-log)
+		  ENABLE_LOG='-m limit --limit 5/min -j LOG --log-prefix "PVE_FH: "'; shift ;;
 		-h|--help)
 				showHelp
 				return 1
@@ -113,6 +117,7 @@ function ensureDropRules {
 	[[ $BLOCK_INPUT   == 1 ]] && { iptables -C INPUT   -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null || iptables -I INPUT   -m set --match-set $IPSET_NAME src -j DROP; }
 	[[ $BLOCK_FORWARD == 1 ]] && { iptables -C FORWARD -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null || iptables -I FORWARD -m set --match-set $IPSET_NAME src -j DROP; }
 	[[ $BLOCK_OUTPUT  == 1 ]] && { iptables -C OUTPUT  -m set --match-set $IPSET_NAME dst -j DROP 2>/dev/null || iptables -I OUTPUT  -m set --match-set $IPSET_NAME dst -j DROP; }
+	# Ricordati di aggiungere il log.
 }
 
 parseOptions $@ || exit 1
