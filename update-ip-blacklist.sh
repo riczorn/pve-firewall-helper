@@ -138,6 +138,7 @@ echo "" > $FILE_DEST
 for F in $URLS
 do
 rm $FILE_TMP
+echo "Downloading $F"
 wget -q --show-progress "$F" -O $FILE_TMP
 if [[ $? -ne 0 ]]; then
 	showError "Error downloading IPv4 list from $F"
