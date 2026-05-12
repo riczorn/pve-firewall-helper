@@ -132,7 +132,7 @@ echo -e "$GREEN Download and extract the updated lists$RESET"
 
 # Download IPv4 list
 echo "" > $FILE_DEST
-for F in $URLS
+for F in ${URLS[@]}
 do
 rm $FILE_TMP
 echo "Downloading $F"
