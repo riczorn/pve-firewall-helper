@@ -117,7 +117,7 @@ function ensureDropRules {
 	[[ $BLOCK_INPUT   == 1 ]] && { iptables -C INPUT   -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null || iptables -I INPUT   -m set --match-set $IPSET_NAME src -j DROP; }
 	[[ $BLOCK_FORWARD == 1 ]] && { iptables -C FORWARD -m set --match-set $IPSET_NAME src -j DROP 2>/dev/null || iptables -I FORWARD -m set --match-set $IPSET_NAME src -j DROP; }
 	[[ $BLOCK_OUTPUT  == 1 ]] && { iptables -C OUTPUT  -m set --match-set $IPSET_NAME dst -j DROP 2>/dev/null || iptables -I OUTPUT  -m set --match-set $IPSET_NAME dst -j DROP; }
-	# Ricordati di aggiungere il log.
+	# Ricordati di aggiungere il log. Dopo. Fai ciclo.
 }
 
 parseOptions $@ || exit 1
