@@ -15,8 +15,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_DIR="$SCRIPT_DIR/tmp"
 IPSET_SAVE="$TMP_DIR/blacklist-rules.save"
 
-URL_IPv4="https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4"
-FILE_IPv4="$TMP_DIR/abuseipdb-s100-30d.ipv4"
+URLS=("https://iplists.firehol.org/files/firehol_level1.netset",
+"https://iplists.firehol.org/files/firehol_level2.netset",
+"https://iplists.firehol.org/files/firehol_level3.netset",
+"https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4")
+
+FILE_DEST="$TMP_DIR/list.ipv4"
+FILE_TMP="$TMP_DIR/list.tmp"
 
 # Chains to enforce DROP rules on (all enabled by default)
 BLOCK_INPUT=1
@@ -129,19 +134,28 @@ GREEN="$LIGHTGREEN"
 echo -e "$GREEN Download and extract the updated lists$RESET"
 
 # Download IPv4 list
-wget -q --show-progress "$URL_IPv4" -O "$FILE_IPv4"
+echo "" > $FILE_DEST
+for F in $URLS
+do
+rm $FILE_TMP
+wget -q --show-progress "$F" -O $FILE_TMP
 if [[ $? -ne 0 ]]; then
-	showError "Error downloading IPv4 list from $URL_IPv4"
-	exit 1
+	showError "Error downloading IPv4 list from $F"
+	continue
 fi
-echo "File $FILE_IPv4 downloaded"
+cat $FILE_TMP | sed -e 's/ \+#.*$//g'>> $FILE_DEST
+
+done
+
+FLENGTH=`wc -l < "$FILE_DEST"`
+echo "IPv4 lists downloaded $FLENGTH addresses"
 
 # Validate the last line of the downloaded IPv4 file is a complete IP address.
 # A truncated download (e.g. ending in "192.") would cause iprange to emit a
 # broad CIDR like 192.0.0.0/8, banning an entire class-A block.
-LASTLINE=$(tail -1 "$FILE_IPv4")
+LASTLINE=$(tail -1 "$FILE_DEST")
 if ! echo "$LASTLINE" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}'; then
-	showError "ERROR last line of $FILE_IPv4 is not a valid IPv4 address: '$LASTLINE'"
+	showError "ERROR last line of $FILE_DEST is not a valid IPv4 address: '$LASTLINE'"
 	showError "The file may be truncated. Aborting to protect the firewall."
 	exit 1
 fi
@@ -149,7 +163,8 @@ fi
 GREEN="\033[38;5;190m"
 
 # Combine the IPv4 addresses into CIDR ranges
-iprange "$FILE_IPv4" > "$TMP_DIR/iprange.txt"
+sort $FILE_DEST | uniq > $TMP_DIR/list.unique
+iprange "$TMP_DIR/list.unique" > "$TMP_DIR/iprange.txt"
 
 IPRANGELINES=$(wc -l < "$TMP_DIR/iprange.txt")
 if [ "$IPRANGELINES" -lt "500" ]; then
@@ -158,7 +173,7 @@ if [ "$IPRANGELINES" -lt "500" ]; then
 fi
 
 CIDR=$(wc -l < "$TMP_DIR/iprange.txt")
-LINES=$(grep -c '^[0-9]' "$FILE_IPv4")
+LINES=$(grep -c '^[0-9]' "$FILE_DEST")
 
 showInfo "Loading $CIDR IPv4 CIDR ranges into kernel ipset zzzblacklist4..."
 loadIpset "zzzblacklist4" "inet" "$TMP_DIR/iprange.txt"
