@@ -11,7 +11,7 @@
 # when scheduling, redirect output to /var/log/pve-firewall-helper_log i.e.
 # /opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 TMP_DIR="$SCRIPT_DIR/tmp"
 IPSET_SAVE="$TMP_DIR/blacklist-rules.save"
 
