@@ -11,6 +11,7 @@
 # when scheduling, redirect output to /var/log/pve-firewall-helper_log i.e.
 # /opt/pve-firewall-helper/update-ip-blacklist.sh >> /var/log/pve-firewall-helper_log
 
+# readlink resolves the symlink to the actual file path
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 TMP_DIR="$SCRIPT_DIR/tmp"
 IPSET_SAVE="$TMP_DIR/blacklist-rules.save"
@@ -121,6 +122,8 @@ function ensureDropRules {
 	# Add logging logic
 }
 
+# Main
+
 parseOptions $@ || exit 1
 showInfo "------\n$(date)\nUpdating from abuseipdb\n# $0\n-----"
 
@@ -136,34 +139,36 @@ mkdir -p "$TMP_DIR"
 GREEN="$LIGHTGREEN"
 echo -e "$GREEN Download and extract the updated lists$RESET"
 
-# Download IPv4 list
+# Download IPv4 lists
 echo "" > $FILE_DEST
 for F in ${URLS[@]}
 do
-rm $FILE_TMP
-echo "Downloading $F..."
-wget -q "$F" -O $FILE_TMP
-if [[ $? -ne 0 ]]; then
-	showError "Error downloading IPv4 list from $F"
-	continue
-fi
-echo "... `wc -l $FILE_TMP` lines"
-cat $FILE_TMP | sed -e 's/ \+#.*$//g'>> $FILE_DEST
+	rm $FILE_TMP
+	echo "Downloading $F..."
+	wget -q "$F" -O $FILE_TMP
+	if [[ $? -ne 0 ]]; then
+		showError "Error downloading IPv4 list from $F"
+		continue
+	fi
+	echo "... `wc -l $FILE_TMP` lines"
 
+	# Validate the last line of the downloaded IPv4 file is a complete IP address.
+	# A truncated download (e.g. ending in "191.") would cause iprange to emit a
+	# broad CIDR like 191.0.0.0/8, banning an entire class-A block.
+	LASTLINE=$(tail -1 "$FILE_DEST")
+	if ! echo "$LASTLINE" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}'; then
+		showError "ERROR last line of $FILE_DEST is not a valid IPv4 address: '$LASTLINE'"
+		showError "The file may be truncated. Aborting to protect the firewall."
+		exit 1
+	fi
+
+	cat $FILE_TMP | sed -e 's/ \+#.*$//g' | sed -E 's/^(0\.){3}.*$//g'| sed -e 's/^127\.0.*//g' >> $FILE_DEST
 done
 
 FLENGTH=`wc -l < "$FILE_DEST"`
 echo "IPv4 lists downloaded $FLENGTH addresses"
 
-# Validate the last line of the downloaded IPv4 file is a complete IP address.
-# A truncated download (e.g. ending in "192.") would cause iprange to emit a
-# broad CIDR like 192.0.0.0/8, banning an entire class-A block.
-LASTLINE=$(tail -1 "$FILE_DEST")
-if ! echo "$LASTLINE" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}'; then
-	showError "ERROR last line of $FILE_DEST is not a valid IPv4 address: '$LASTLINE'"
-	showError "The file may be truncated. Aborting to protect the firewall."
-	exit 1
-fi
+
 
 GREEN="\033[38;5;190m"
 
