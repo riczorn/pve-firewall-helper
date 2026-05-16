@@ -156,7 +156,7 @@ do
 	# A truncated download (e.g. ending in "191.") would cause iprange to emit a
 	# broad CIDR like 191.0.0.0/8, banning an entire class-A block.
 	LASTLINE=$(tail -1 "$FILE_DEST")
-	if ! echo "$LASTLINE" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}'; then
+	if [ -n "$LASTLINE" ] && ! grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}' "$LASTLINE"; then
 		showError "ERROR last line of $FILE_DEST is not a valid IPv4 address: '$LASTLINE'"
 		showError "The file may be truncated. Aborting to protect the firewall."
 		exit 1
